@@ -1,0 +1,506 @@
+---
+title: "Untitled"
+author: "Benoit Nicolet"
+date: "5/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/")
+setwd("/home/ben/Analysis/RF_human/")
+
+```
+
+
+```{r getting parameters together}
+
+Gene_wise_5UTR_list <- read.delim("/home/ben/Analysis/RF_human/sequences/5UTR_motifs_list_from_sequences.csv",sep = ";", dec = ",")
+Gene_wise_CDS_list <- read.delim("/home/ben/Analysis/RF_human/sequences/CDS_motifs_list_from_sequences.csv",sep = ";", dec = ",")
+Gene_wise_3UTR_list <- read.delim("/home/ben/Analysis/RF_human/sequences/3UTR_motifs_list_from_sequences.csv",sep = ";", dec = ",")
+Protein_annotation <- read.delim("/home/ben/Analysis/RF_human/sequences/Protein_annotation_PTMs.csv",sep = "\t")
+Gene_annotation <- read.delim("/home/ben/Analysis/RF_human/sequences/Gene_characteristics_GC_ZebraFish_conservation.csv",sep = "")
+
+dim(Gene_wise_5UTR_list)
+dim(Gene_wise_CDS_list)
+dim(Gene_wise_3UTR_list)
+dim(Protein_annotation)
+dim(Gene_annotation)
+
+m6A <- data.frame("ID"=Gene_wise_CDS_list$external_gene_name_CDS,
+                  "CDS_m6a"=Gene_wise_CDS_list$CDS_m6a,
+                  "UTR3_m6a"=Gene_wise_CDS_list$UTR3_m6a,
+                  "UTR5_m6a"=Gene_wise_CDS_list$UTR5_m6a)
+
+
+colnames(Gene_wise_5UTR_list)[1] <- "ID"
+colnames(Gene_wise_CDS_list)[1] <- "ID"
+colnames(Gene_wise_3UTR_list)[1] <- "ID"
+colnames(Protein_annotation)[1] <- "ID"
+colnames(Gene_annotation)[1] <- "ID"
+
+Gene_wise_CDS_list$STP_CDS <- NULL
+Gene_annotation$percentage_gene_gc_content <- NULL
+
+Sequence_parameters_RNA <- merge(Gene_wise_5UTR_list,Gene_wise_CDS_list,by="ID", all.x=T, all.y=T)
+Sequence_parameters_RNA <- merge(Sequence_parameters_RNA,Gene_wise_3UTR_list,by="ID", all.x=T, all.y=T)
+Sequence_parameters_RNA <- merge(Sequence_parameters_RNA,Gene_annotation,by="ID", all.x=T, all.y=T)
+Sequence_parameters <- merge(Sequence_parameters_RNA,Protein_annotation,by="ID", all.x=T, all.y=T)
+
+dim(Sequence_parameters_RNA)
+Sequence_parameters_RNA <- NULL
+
+dim(Sequence_parameters)
+
+
+Sequence_parameters[2:ncol(Sequence_parameters)] <- lapply(Sequence_parameters[2:ncol(Sequence_parameters)], function(x) {
+    if(is.character(x)) as.numeric(x) else x
+})
+
+
+
+UTR3_param <- merge(Gene_wise_3UTR_list,m6A, by="ID")
+UTR5_param <- merge(Gene_wise_5UTR_list,m6A, by="ID")
+
+CDS_param <- Gene_wise_CDS_list
+
+UTR3_param$CDS_m6a <- NULL
+UTR3_param$UTR5_m6a <- NULL
+
+UTR5_param$CDS_m6a <- NULL
+UTR5_param$UTR3_m6a <- NULL
+
+CDS_param$UTR3_m6a <- NULL
+CDS_param$total_m6A <- NULL
+CDS_param$UTR5_m6a <- NULL
+
+
+```
+
+
+```{r prep with Tactivated data}
+
+# Set random seed to make results reproducible:
+set.seed(1234)
+CN_TPM_2G_simplified <-NULL
+CN_TPM_2G_simplified <- read.delim("/home/ben/Analysis/RF_human/CN_TPM_2G.csv",sep=";", dec=",", row.names = 1)
+dim(CN_TPM_2G_simplified)
+
+CN_TPM_2G_simplified$ID <- rownames(CN_TPM_2G_simplified)
+
+CN_TPM_2G_simplified <- data.frame("ID"=CN_TPM_2G_simplified$ID, "mean_of_means_TPM_2G"=CN_TPM_2G_simplified$mean_of_means_TPM_2G,"avg_log_CN"=CN_TPM_2G_simplified$avg_log_CN)
+
+#CN2G_PT_pred <- merge(CN_TPM_2G_simplified,miRNA,by="ID", all.x=T)
+CN2G_PT_pred <- merge(CN_TPM_2G_simplified,Sequence_parameters,by="ID", all.x=T)
+
+CN2G_PT_pred$mean_of_means_TPM_2G <- NULL
+CN2G_PT_pred$Pt_RNA_ratio <- NULL
+
+
+CN2G_PT_pred[is.na(CN2G_PT_pred)] <- 0
+
+# CN2G_PT_pred$GC_percentage_CDS[CN2G_PT_pred$GC_percentage_CDS==0]=NA
+# CN2G_PT_pred$GC_percentage_UTR5[CN2G_PT_pred$GC_percentage_UTR5==0]=NA
+# CN2G_PT_pred$GC_percentage_UTR3[CN2G_PT_pred$GC_percentage_UTR3==0]=NA
+
+rownames(CN2G_PT_pred) <- CN2G_PT_pred$ID
+CN2G_PT_pred$ID <- NULL
+
+dim(CN2G_PT_pred)
+CN2G_PT_pred[1:(ncol(CN2G_PT_pred))] <- lapply(CN2G_PT_pred[1:(ncol(CN2G_PT_pred))], function(x) {
+    if(is.character(x)) as.numeric(x) else x
+})
+
+
+```
+
+
+## Selecting promising features for protein model
+```{r selecting promising features for protein model}
+dim(CN2G_PT_pred) # 4655 4722
+## Filtering on max value per column ##
+
+# Creating a nice little function : 
+colMax <- function(data) sapply(data, max, na.rm = TRUE)
+
+CN2G_PT_pred_2 <- cbind("avg_log_CN"=CN2G_PT_pred$avg_log_CN, CN2G_PT_pred %>% dplyr::select(which(colMax(CN2G_PT_pred)>10)))#, "CUB_CDS"=CN2G_PT_pred$CUB_CDS, "MILC_CDS"=CN2G_PT_pred$MILC_CDS)
+dim(CN2G_PT_pred_2) # 4648 1290
+class(CN2G_PT_pred)
+```
+
+
+
+```{r making space in RAM}
+
+rm(Gene_wise_5UTR_list, Gene_wise_CDS_list,Gene_wise_3UTR_list,Protein_annotation,Gene_annotation,UTR3_param,UTR5_param,CDS_param,Gene_wise_CDS_list,Sequence_parameters,Sequence_parameters_RNA)
+gc()
+
+```
+
+
+```{r making test + train sets}
+
+train_row <- sample(1:nrow(CN2G_PT_pred_2), 0.6 * nrow(CN2G_PT_pred_2))
+train_2G <- CN2G_PT_pred_2[train_row,]
+test_2G <- CN2G_PT_pred_2[-train_row,]
+
+dim(train_2G)
+dim(test_2G)
+```
+
+
+
+## validation of mtrys
+```{r training a model on all features for 2G proteins}
+dim(CN2G_PT_pred_2) # 4648 1289
+
+1289/3
+gc()
+registerDoMC(10)
+control <- trainControl(method="cv",
+                        number=2,
+                        # repeats = 2,
+                        verboseIter = TRUE,
+                        allowParallel = TRUE)
+
+tunegrid_mtry <- expand.grid(mtry=c(1,5,10,50,100,429,600,900,1289))
+
+set.seed(12345)
+start_time <- Sys.time()
+rf_mtrys <- train(avg_log_CN~.,
+                       data=CN2G_PT_pred_2,
+                       method="rf",
+                       ntree=100,
+                       trControl=control,
+                       metric=c("Rsquared"),
+                       tuneGrid= tunegrid_mtry,
+                       na.action = na.omit,
+                       importance = FALSE,
+                       verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 9.212497 hours
+
+rf_mtrys
+# Random Forest 
+# 
+# 4648 samples
+# 1288 predictors
+# 
+# No pre-processing
+# Resampling: Cross-Validated (2 fold) 
+# Summary of sample sizes: 2324, 2324 
+# Resampling results across tuning parameters:
+# 
+#   mtry  RMSE       Rsquared   MAE      
+#      1  0.6772442  0.2133250  0.5488877
+#      5  0.6521942  0.2682336  0.5298650
+#     10  0.6331949  0.3168879  0.5139083
+#     50  0.5704147  0.4657509  0.4601865
+#    100  0.5436154  0.5140765  0.4347682
+#    429  0.5183379  0.5396789  0.4079390
+#    600  0.5195519  0.5340295  0.4076501
+#    900  0.5218119  0.5256856  0.4079964
+#   1289  0.5213009  0.5255076  0.4074111
+# 
+# Rsquared was used to select the optimal model using the largest value.
+# The final value used for the model was mtry = 429.
+
+rf_mtrys$finalModel
+
+#                Type of random forest: regression
+#                      Number of trees: 100
+# No. of variables tried at each split: 429
+# 
+#           Mean of squared residuals: 0.2631146
+#                     % Var explained: 53.59
+
+saveRDS(rf_mtrys, "/home/ben/Analysis/RF_human/old_models/rf_mtrys.RDS")
+# 
+# pred_2G_testset <- predict(rf_2G_pt_train,test_2G)
+# pred_2G_testset <- data.frame(pred_2G_testset)
+# pred_2G_testset$ID <- rownames(pred_2G_testset)
+# test_2G$ID <- rownames(test_2G)
+# 
+# 
+# pred_vs_test <- merge(pred_2G_testset, test_2G, by="ID", all=T)
+# ggplot(pred_vs_test,aes(x=pred_2G_testset, y=avg_log_CN))+
+#   geom_point()+
+#   geom_smooth(method = "lm")+
+#   scale_x_continuous(limits = c(2,8.1))+
+#   scale_y_continuous(limits = c(2,8.1))
+#   
+# cor(pred_vs_test$pred_2G_testset,pred_vs_test$avg_log_CN,use = "pairwise.complete.obs")^2
+# 
+# 
+# pred_2G_trainset <- predict(rf_2G_pt_train,train_2G)
+# pred_2G_trainset <- data.frame(pred_2G_trainset)
+# pred_2G_trainset$ID <- rownames(pred_2G_trainset)
+# train_2G$ID <- rownames(train_2G)
+# 
+# pred_vs_train <- merge(pred_2G_trainset, train_2G, by="ID", all=T)
+# ggplot(pred_vs_train,aes(x=pred_2G_trainset, y=avg_log_CN))+
+#   geom_point()+
+#   geom_smooth(method = "lm")+
+#   scale_x_continuous(limits = c(2,8.1))+
+#   scale_y_continuous(limits = c(2,8.1))
+# 
+# cor(pred_vs_train$pred_2G_trainset,pred_vs_train$avg_log_CN,use = "pairwise.complete.obs")^2
+# 
+# 
+# imp_rf_2G_pt_train <- data.frame(varImp(rf_2G_pt_train$finalModel))
+# imp_rf_2G_pt_train$ID <- rownames(imp_rf_2G_pt_train)
+# 
+
+```
+
+
+
+## validation of tree depth
+```{r validation of tree depth}
+dim(CN2G_PT_pred_2) # 4648 1289
+
+gc()
+registerDoMC(10)
+
+
+
+control <- trainControl(method="cv",
+                        number=2,
+                        verboseIter = TRUE,
+                        allowParallel = TRUE)
+
+# tunegrid_ndsize <- expand.grid(nodesize=c(1,3,5,10,30))
+
+set.seed(12345)
+start_time <- Sys.time()
+rf_cv_k <- train(avg_log_CN~.,
+                       data=CN2G_PT_pred_2,
+                       method="rf",
+                       ntree=100,
+                       trControl=control,
+                       metric="Rsquared",
+                       tuneGrid= data.frame(mtry=429),
+                       na.action = na.omit,
+                       nodesize=30,
+                       importance = FALSE,
+                       verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 9.212497 hours
+
+rf_cv_k
+
+
+rf_cv_k$finalModel
+
+
+# nodesize=1
+  # RMSE       Rsquared   MAE      
+  # 0.5215473  0.5322953  0.4102015
+  
+# nodesize=3
+ # RMSE       Rsquared   MAE      
+ #  0.5191538  0.5378941  0.4072345
+
+# nodesize=5
+  # RMSE      Rsquared   MAE      
+  # 0.520064  0.5353695  0.4090462
+
+# nodesize=10
+  # RMSE       Rsquared   MAE      
+  # 0.5203218  0.5363306  0.4090938
+
+# nodesize=30
+  # RMSE       Rsquared   MAE      
+  # 0.5192135  0.5377146  0.4083811
+
+
+# saveRDS(rf_cv_k, "/home/ben/Analysis/RF_human/old_models/rf_cv_k.RDS")
+
+
+```
+
+
+
+## validation of trees
+```{r validation of trees}
+dim(CN2G_PT_pred_2) # 4648 1289
+
+gc()
+registerDoMC(24)
+
+control <- trainControl(method="cv",
+                        number=2,
+                        verboseIter = TRUE,
+                        allowParallel = TRUE)
+
+
+
+set.seed(12345)
+start_time <- Sys.time()
+rf_trees <- train(avg_log_CN~.,
+                       data=CN2G_PT_pred_2,
+                       method="rf",
+                       ntree=5000,
+                       trControl=control,
+                       metric="Rsquared",
+                       tuneGrid= data.frame(mtry=429),
+                       na.action = na.omit,
+                       importance = FALSE,
+                       verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 20.31778 mins
+
+rf_trees
+
+
+rf_trees$finalModel
+
+#tree=1
+  # RMSE       Rsquared   MAE      
+  # 0.7824424  0.2097316  0.6002077
+ # % Var explained: -3.52
+
+
+#tree=3
+  # RMSE       Rsquared   MAE      
+  # 0.6165772  0.3576921  0.4746511
+# % Var explained: 8.71
+
+
+#tree=5
+  # RMSE       Rsquared  MAE      
+  # 0.5728083  0.425299  0.4461464
+#% Var explained: 17.18
+
+#tree=10
+  # RMSE       Rsquared   MAE      
+  # 0.5474094  0.4718479  0.4270269
+# % Var explained: 35.73 
+
+#tree=50
+  # RMSE       Rsquared   MAE      
+  # 0.5238236  0.5258478  0.4107391
+#% Var explained: 51.12
+
+#tree=100
+  # RMSE      Rsquared   MAE      
+  # 0.520064  0.5353695  0.4090462
+#% Var explained: 53.13
+
+#tree=500
+  # RMSE       Rsquared   MAE      
+  # 0.5176555  0.5423578  0.4070745
+# % Var explained: 54.38
+
+#tree=1000
+  # RMSE       Rsquared   MAE      
+  # 0.5173531  0.5427839  0.4069182
+# % Var explained: 54.74
+
+#tree=5000 in 3.513471 hours
+  # RMSE       Rsquared   MAE      
+  # 0.5168504  0.5439134  0.4064536
+ # % Var explained: 54.93
+
+
+#saveRDS(rf_trees, "/home/ben/Analysis/RF_human/old_models/rf_treesRDS")
+
+
+```
+
+
+
+## validation of trees
+```{r validation of trees}
+dim(train_2G) # 2788 1289
+
+gc()
+registerDoMC(24)
+
+control <- trainControl(method="cv",
+                        number=2,
+                        verboseIter = TRUE,
+                        allowParallel = TRUE)
+
+set.seed(12345)
+start_time <- Sys.time()
+rf_2G_pt_train <- train(avg_log_CN~.,
+                       data=train_2G,
+                       method="rf",
+                       ntree=5000,
+                       trControl=control,
+                       metric="Rsquared",
+                       tuneGrid= data.frame(mtry=429),
+                       na.action = na.omit,
+                       importance = FALSE,
+                       verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 20.31778 mins
+
+rf_2G_pt_train
+
+
+rf_2G_pt_train$finalModel
+
+pred_2G_testset <- predict(rf_2G_pt_train,test_2G)
+pred_2G_testset <- data.frame(pred_2G_testset)
+pred_2G_testset$ID <- rownames(pred_2G_testset)
+test_2G$ID <- rownames(test_2G)
+
+
+pred_vs_test <- merge(pred_2G_testset, test_2G, by="ID", all=T)
+
+ggplot(pred_vs_test,aes(x=pred_2G_testset, y=avg_log_CN))+
+  geom_point()+
+  geom_smooth(method = "lm")+
+  scale_x_continuous(limits = c(2,8.1))+
+  scale_y_continuous(limits = c(2,8.1))
+
+cor(pred_vs_test$pred_2G_testset,pred_vs_test$avg_log_CN,use = "pairwise.complete.obs")^2
+
+# 1 TREE
+#0.1764319
+
+# 3 TREE
+# 0.3339749
+
+# 5 TREE
+#0.4190979
+
+# 10 TREE
+#0.4731432
+
+# 50 TREE
+#0.5204404
+
+# 100 TREE
+#0.5309668
+
+# 500 TREE
+# 0.5390404
+# 1000 TREE
+# 0.538412
+
+# 5000 TREE
+#0.5382718
+
+```
+
+
+

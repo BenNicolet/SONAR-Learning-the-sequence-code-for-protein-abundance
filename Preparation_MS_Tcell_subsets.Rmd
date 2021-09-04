@@ -1,0 +1,469 @@
+---
+title: "Preparation of TPM tables for RF in T cell susbsets"
+author: "Benoit Nicolet"
+date: "27/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/")
+setwd("/home/ben/Analysis/RF_human/")
+
+
+```
+
+
+```{r Protein library v1}
+
+Sequence_parameters <- read.delim("/home/ben/Analysis/RF_human/sequences/Full_library_v1_with_protein_sites_30-03-21.csv", sep=" ", dec=".",row.names = 1)
+Sequence_parameters$ID <- rownames(Sequence_parameters)
+
+CN_MANN <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CN_fromLFQ_mann.txt")
+CN_MANN <- data.frame(CN_MANN[,533:537],CN_MANN %>% dplyr::select(contains("copy")))
+CN_MANN <- data.frame(CN_MANN[,1:4],CN_MANN %>% dplyr::select(contains("steady")))
+CN_MANN$T..Protein.names <- NULL
+CN_MANN$T..Gene.names <- mapply(strsplit(as.character(CN_MANN$T..Gene.names),";"),FUN=function(x){(as.character(x)[1])})
+
+dim(CN_MANN)
+# dim(CN_MANN[CN_MANN$T..Gene.names %in% Sequence_parameters$ID,])
+# 
+# outliers <- CN_MANN[!CN_MANN$T..Gene.names %in% Sequence_parameters$ID,]
+# dim(outliers[outliers$T..Gene.name %in% Sequence_parameters$ID,])
+# 
+# dim(CN_MANN[CN_MANN$T..Gene.name %in% Sequence_parameters$ID,])
+
+# Replacing empty gene names by the other gene names column # 
+CN_MANN$ID <- ifelse((CN_MANN$T..Gene.name)=="",CN_MANN$T..Gene.names,CN_MANN$T..Gene.name)
+dim(CN_MANN[CN_MANN$ID %in% Sequence_parameters$ID,]) # 10114   116    # Nice!
+
+table(duplicated(CN_MANN$ID))
+
+registerDoMC(4)
+CN_MANN <- ddply(CN_MANN,"ID", numcolwise(sum), .parallel = T, .progress = T)
+
+
+```
+
+
+```{r CD4 Tn}
+
+CD4_MS <- data.frame(CN_MANN$ID, CN_MANN %>% dplyr::select(contains("T4")) )
+dim(CD4_MS)
+
+CD4_CN_Tn <- NULL
+CD4_CN_Tn$ID <- CD4_MS$CN_MANN.ID
+CD4_CN_Tn$CN <- rowMeans(CD4_MS[,2:5])
+CD4_CN_Tn <- data.frame(CD4_CN_Tn)
+
+dim(CD4_CN_Tn)
+
+CD4_CN_Tn$CN <- log10(CD4_CN_Tn$CN)
+CD4_CN_Tn <- subset(CD4_CN_Tn, CD4_CN_Tn$CN>0)
+dim(CD4_CN_Tn) # 7895 proteins expressed in  CD4 Tn !
+
+write.table(CD4_CN_Tn,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+dim(CD4_CN_Tn)
+dim(CD4_CN_Tn[CD4_CN_Tn$ID %in% Sequence_parameters$ID,])
+```
+
+
+
+```{r CD4 Tcm}
+
+CD4_CN_Tcm <- NULL
+CD4_CN_Tcm$ID <- CD4_MS$CN_MANN.ID
+CD4_CN_Tcm$CN <- rowMeans(CD4_MS[,6:9])
+CD4_CN_Tcm <- data.frame(CD4_CN_Tcm)
+
+dim(CD4_CN_Tcm)
+
+CD4_CN_Tcm$CN <- log10(CD4_CN_Tcm$CN)
+CD4_CN_Tcm <- subset(CD4_CN_Tcm, CD4_CN_Tcm$CN>0)
+dim(CD4_CN_Tcm) # 7943 proteins expressed in  CD4 Tcm !
+
+write.table(CD4_CN_Tcm,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tcm_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+```{r CD4 Tem}
+
+CD4_CN_Tem <- NULL
+CD4_CN_Tem$ID <- CD4_MS$CN_MANN.ID
+CD4_CN_Tem$CN <- rowMeans(CD4_MS[,10:13])
+CD4_CN_Tem <- data.frame(CD4_CN_Tem)
+
+dim(CD4_CN_Tem)
+
+CD4_CN_Tem$CN <- log10(CD4_CN_Tem$CN)
+CD4_CN_Tem <- subset(CD4_CN_Tem, CD4_CN_Tem$CN>0)
+dim(CD4_CN_Tem) # 7943 proteins expressed in  CD4 Tem !
+
+write.table(CD4_CN_Tem,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tem_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Teff}
+
+CD4_CN_Teff <- NULL
+CD4_CN_Teff$ID <- CD4_MS$CN_MANN.ID
+CD4_CN_Teff$CN <- rowMeans(CD4_MS[,14:17])
+CD4_CN_Teff <- data.frame(CD4_CN_Teff)
+
+dim(CD4_CN_Teff)
+
+CD4_CN_Teff$CN <- log10(CD4_CN_Teff$CN)
+CD4_CN_Teff <- subset(CD4_CN_Teff, CD4_CN_Teff$CN>0)
+dim(CD4_CN_Teff) # 7943 proteins expressed in  CD4 Teff !
+
+write.table(CD4_CN_Teff,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Teff_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+```{r CD8 Tn}
+
+CD8_MS <- data.frame(CN_MANN$ID, CN_MANN %>% dplyr::select(contains("T8")) )
+dim(CD8_MS)
+
+CD8_CN_Tn <- NULL
+CD8_CN_Tn$ID <- CD8_MS$CN_MANN.ID
+CD8_CN_Tn$CN <- rowMeans(CD8_MS[,2:5])
+CD8_CN_Tn <- data.frame(CD8_CN_Tn)
+
+dim(CD8_CN_Tn)
+
+CD8_CN_Tn$CN <- log10(CD8_CN_Tn$CN)
+CD8_CN_Tn <- subset(CD8_CN_Tn, CD8_CN_Tn$CN>0)
+dim(CD8_CN_Tn) # 8192 proteins expressed in  CD8 Tn !
+
+write.table(CD8_CN_Tn,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD8_Tn_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+```{r CD8 Tcm}
+
+CD8_CN_Tcm <- NULL
+CD8_CN_Tcm$ID <- CD8_MS$CN_MANN.ID
+CD8_CN_Tcm$CN <- rowMeans(CD8_MS[,6:9])
+CD8_CN_Tcm <- data.frame(CD8_CN_Tcm)
+
+dim(CD8_CN_Tcm)
+
+CD8_CN_Tcm$CN <- log10(CD8_CN_Tcm$CN)
+CD8_CN_Tcm <- subset(CD8_CN_Tcm, CD8_CN_Tcm$CN>0)
+dim(CD8_CN_Tcm) # 8307 proteins expressed in  CD8 Tcm !
+
+write.table(CD8_CN_Tcm,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD8_Tcm_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD8 Tem}
+
+CD8_CN_Tem <- NULL
+CD8_CN_Tem$ID <- CD8_MS$CN_MANN.ID
+CD8_CN_Tem$CN <- rowMeans(CD8_MS[,10:13])
+CD8_CN_Tem <- data.frame(CD8_CN_Tem)
+
+dim(CD8_CN_Tem)
+
+CD8_CN_Tem$CN <- log10(CD8_CN_Tem$CN)
+CD8_CN_Tem <- subset(CD8_CN_Tem, CD8_CN_Tem$CN>0)
+dim(CD8_CN_Tem) # 8310 proteins expressed in  CD8 Tem !
+
+write.table(CD8_CN_Tem,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD8_Tem_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+```{r CD8 Teff}
+
+CD8_CN_Teff <- NULL
+CD8_CN_Teff$ID <- CD8_MS$CN_MANN.ID
+CD8_CN_Teff$CN <- rowMeans(CD8_MS[,14:17])
+CD8_CN_Teff <- data.frame(CD8_CN_Teff)
+
+dim(CD8_CN_Teff)
+
+CD8_CN_Teff$CN <- log10(CD8_CN_Teff$CN)
+CD8_CN_Teff <- subset(CD8_CN_Teff, CD8_CN_Teff$CN>0)
+dim(CD8_CN_Teff) # 8253 proteins expressed in  CD8 Teff !
+
+write.table(CD8_CN_Teff,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD8_Teff_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+
+
+
+
+
+# CD4 Activation (Geiger Lab)
+
+```{r CD4 immunomics.ch prep}
+CN_Geiger <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/Protein/Immunomics_CN.csv", sep = ",")
+CN_Geiger$protein_name <- NULL
+CN_Geiger$kDa <- NULL
+
+table(duplicated(CN_Geiger$gene_name))
+
+dim(CN_Geiger) # 7722   10
+
+Uniprot_ref <- read.delim("/home/ben/Analysis/RF_human/sequences/uniprot-filtered-organism Homo+sapiens+(Human)+[9606] +AND+review--.tab")
+
+Uniprot_ref$ID1 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[1])})
+Uniprot_ref$ID2 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[2])})
+Uniprot_ref$ID3 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[3])})
+Uniprot_ref$ID4 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[4])})
+Uniprot_ref$ID5 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[5])})
+#Uniprot_ref$ID6 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[6])})
+
+table(duplicated(Uniprot_ref$Gene.names))
+Uniprot_ref <- Uniprot_ref[!duplicated(Uniprot_ref$Gene.names),]
+table(duplicated(Uniprot_ref$Gene.names)) ## Good
+
+
+dim(CN_Geiger)
+dim(CN_Geiger[CN_Geiger$gene_name %in% Uniprot_ref$ID1,]) # 7317
+dim(CN_Geiger[CN_Geiger$gene_name %in% Uniprot_ref$ID2,]) # 309
+dim(CN_Geiger[CN_Geiger$gene_name %in% Uniprot_ref$ID3,]) # 170
+7336 + 309 + 170
+
+# dim(Sequence_parameters)
+# dim(Sequence_parameters[Sequence_parameters$ID %in% Uniprot_ref$ID1,]) # 19196
+# dim(Sequence_parameters[Sequence_parameters$ID %in% Uniprot_ref$ID2,]) # 321
+# dim(Sequence_parameters[Sequence_parameters$ID %in% Uniprot_ref$ID3,]) # 141
+
+
+# CN_Geiger$agrep_name <- ""
+# suppressWarnings(
+# for(i in 1:dim(CN_Geiger)[1]) {
+#   x <- agrep(CN_Geiger$gene_name[i], Uniprot_ref$Gene.names,ignore.case=TRUE, value=TRUE,max.distance = 0.05, useBytes = TRUE)
+#   x <- paste0(x,"")
+#   CN_Geiger$agrep_name[i] <- x 
+#   }
+# )
+
+
+CN_Geiger_ID1 <- merge(CN_Geiger, Uniprot_ref, by.x="gene_name", by.y="ID1",all.x=F)
+CN_Geiger_ID1 <- CN_Geiger_ID1[!duplicated(CN_Geiger_ID1$gene_name),]
+
+CN_Geiger_ID2 <- CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_ID1$gene_name,]
+CN_Geiger_ID2 <- merge(CN_Geiger_ID2, Uniprot_ref, by.x="gene_name", by.y="ID2",all.x=F)
+CN_Geiger_ID2 <- CN_Geiger_ID2[!duplicated(CN_Geiger_ID2$gene_name),]
+
+CN_Geiger_ID3 <- CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_ID1$gene_name,]
+CN_Geiger_ID3 <- CN_Geiger_ID3[!CN_Geiger_ID3$gene_name %in% CN_Geiger_ID2$gene_name,]
+CN_Geiger_ID3 <- merge(CN_Geiger_ID3, Uniprot_ref, by.x="gene_name", by.y="ID3",all.x=F)
+CN_Geiger_ID3 <- CN_Geiger_ID3[!duplicated(CN_Geiger_ID3$gene_name),]
+
+CN_Geiger_ID4 <- CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_ID1$gene_name,]
+CN_Geiger_ID4 <- CN_Geiger_ID4[!CN_Geiger_ID4$gene_name %in% CN_Geiger_ID2$gene_name,]
+CN_Geiger_ID4 <- CN_Geiger_ID4[!CN_Geiger_ID4$gene_name %in% CN_Geiger_ID3$gene_name,]
+CN_Geiger_ID4 <- merge(CN_Geiger_ID4, Uniprot_ref, by.x="gene_name", by.y="ID4",all.x=F)
+CN_Geiger_ID4 <- CN_Geiger_ID4[!duplicated(CN_Geiger_ID4$gene_name),]
+
+CN_Geiger_ID5 <- CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_ID1$gene_name,]
+CN_Geiger_ID5 <- CN_Geiger_ID5[!CN_Geiger_ID5$gene_name %in% CN_Geiger_ID2$gene_name,]
+CN_Geiger_ID5 <- CN_Geiger_ID5[!CN_Geiger_ID5$gene_name %in% CN_Geiger_ID3$gene_name,]
+CN_Geiger_ID5 <- CN_Geiger_ID5[!CN_Geiger_ID5$gene_name %in% CN_Geiger_ID4$gene_name,]
+CN_Geiger_ID5 <- merge(CN_Geiger_ID5, Uniprot_ref, by.x="gene_name", by.y="ID5",all.x=F)
+CN_Geiger_ID5 <- CN_Geiger_ID5[!duplicated(CN_Geiger_ID5$gene_name),]
+
+# CN_Geiger_ID6 <- CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_ID1$gene_name,]
+# CN_Geiger_ID6 <- CN_Geiger_ID6[!CN_Geiger_ID6$gene_name %in% CN_Geiger_ID2$gene_name,]
+# CN_Geiger_ID6 <- CN_Geiger_ID6[!CN_Geiger_ID6$gene_name %in% CN_Geiger_ID3$gene_name,]
+# CN_Geiger_ID6 <- CN_Geiger_ID6[!CN_Geiger_ID6$gene_name %in% CN_Geiger_ID4$gene_name,]
+# CN_Geiger_ID6 <- CN_Geiger_ID6[!CN_Geiger_ID6$gene_name %in% CN_Geiger_ID5$gene_name,]
+# CN_Geiger_ID6 <- merge(CN_Geiger_ID6, Uniprot_ref, by.x="gene_name", by.y="ID6",all.x=F)
+# CN_Geiger_ID6 <- CN_Geiger_ID6[!duplicated(CN_Geiger_ID6$gene_name),]
+
+
+dim(CN_Geiger_ID1) # 7317
+dim(CN_Geiger_ID2) # 215
+dim(CN_Geiger_ID3) # 117
+dim(CN_Geiger_ID4) # 25
+dim(CN_Geiger_ID5) # 8
+#dim(CN_Geiger_ID6) # 0
+7317 + 215 + 117 + 25 + 8
+
+CN_Geiger_ID1 <- CN_Geiger_ID1 %>% dplyr::select(-contains("ID"))
+CN_Geiger_ID2 <- CN_Geiger_ID2 %>% dplyr::select(-contains("ID"))
+CN_Geiger_ID3 <- CN_Geiger_ID3 %>% dplyr::select(-contains("ID"))
+CN_Geiger_ID4 <- CN_Geiger_ID4 %>% dplyr::select(-contains("ID"))
+CN_Geiger_ID5 <- CN_Geiger_ID5 %>% dplyr::select(-contains("ID"))
+
+CN_Geiger_cleaned <- rbind(CN_Geiger_ID1,CN_Geiger_ID2,CN_Geiger_ID3,CN_Geiger_ID4,CN_Geiger_ID5)
+dim(CN_Geiger_cleaned) # 7682   17
+CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_cleaned$gene_name,] # Mostly fusion genes are not picked up (and IGs and TCRs)
+
+
+CN_Geiger_cleaned
+
+CN_Geiger_cleaned$ID1 <- mapply(strsplit(as.character(CN_Geiger_cleaned$Gene.names)," "),FUN=function(x){(as.character(x)[1])})
+CN_Geiger_cleaned$ID2 <- mapply(strsplit(as.character(CN_Geiger_cleaned$Gene.names)," "),FUN=function(x){(as.character(x)[2])})
+CN_Geiger_cleaned$ID3 <- mapply(strsplit(as.character(CN_Geiger_cleaned$Gene.names)," "),FUN=function(x){(as.character(x)[3])})
+CN_Geiger_cleaned$ID4 <- mapply(strsplit(as.character(CN_Geiger_cleaned$Gene.names)," "),FUN=function(x){(as.character(x)[4])})
+CN_Geiger_cleaned$ID5 <- mapply(strsplit(as.character(CN_Geiger_cleaned$Gene.names)," "),FUN=function(x){(as.character(x)[5])})
+
+#table(duplicated(CN_Geiger_cleaned$gene_name))
+
+
+CN_Geiger_cleaned_ID1 <- merge(CN_Geiger_cleaned, Sequence_parameters, by.x="ID1", by.y="ID",all.x=F)
+CN_Geiger_cleaned_ID1 <- CN_Geiger_cleaned_ID1[!duplicated(CN_Geiger_cleaned_ID1$ID1),]
+
+CN_Geiger_cleaned_ID2 <- CN_Geiger_cleaned[!CN_Geiger_cleaned$gene_name %in% CN_Geiger_cleaned_ID1$ID1,]
+CN_Geiger_cleaned_ID2 <- merge(CN_Geiger_cleaned_ID2, Sequence_parameters, by.x="ID2", by.y="ID",all.x=F)
+CN_Geiger_cleaned_ID2 <- CN_Geiger_cleaned_ID2[!duplicated(CN_Geiger_cleaned_ID2$ID2),]
+
+CN_Geiger_cleaned_ID3 <- CN_Geiger_cleaned[!CN_Geiger_cleaned$gene_name %in% CN_Geiger_cleaned_ID1$ID1,]
+CN_Geiger_cleaned_ID3 <- CN_Geiger_cleaned_ID3[!CN_Geiger_cleaned_ID3$gene_name %in% CN_Geiger_cleaned_ID2$ID2,]
+CN_Geiger_cleaned_ID3 <- merge(CN_Geiger_cleaned_ID3, Sequence_parameters, by.x="ID3", by.y="ID",all.x=F)
+CN_Geiger_cleaned_ID3 <- CN_Geiger_cleaned_ID3[!duplicated(CN_Geiger_cleaned_ID3$ID3),]
+
+CN_Geiger_cleaned_ID4 <- CN_Geiger_cleaned[!CN_Geiger_cleaned$gene_name %in% CN_Geiger_cleaned_ID1$ID1,]
+CN_Geiger_cleaned_ID4 <- CN_Geiger_cleaned_ID4[!CN_Geiger_cleaned_ID4$gene_name %in% CN_Geiger_cleaned_ID2$ID2,]
+CN_Geiger_cleaned_ID4 <- CN_Geiger_cleaned_ID4[!CN_Geiger_cleaned_ID4$gene_name %in% CN_Geiger_cleaned_ID3$ID3,]
+CN_Geiger_cleaned_ID4 <- merge(CN_Geiger_cleaned_ID4, Sequence_parameters, by.x="ID4", by.y="ID",all.x=F)
+CN_Geiger_cleaned_ID4 <- CN_Geiger_cleaned_ID4[!duplicated(CN_Geiger_cleaned_ID4$ID4),]
+
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned[!CN_Geiger_cleaned$gene_name %in% CN_Geiger_cleaned_ID1$ID1,]
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned_ID5[!CN_Geiger_cleaned_ID5$gene_name %in% CN_Geiger_cleaned_ID2$ID2,]
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned_ID5[!CN_Geiger_cleaned_ID5$gene_name %in% CN_Geiger_cleaned_ID3$ID3,]
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned_ID5[!CN_Geiger_cleaned_ID5$gene_name %in% CN_Geiger_cleaned_ID4$ID4,]
+CN_Geiger_cleaned_ID5 <- merge(CN_Geiger_cleaned_ID5, Sequence_parameters, by.x="ID5", by.y="ID",all.x=F)
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned_ID5[!duplicated(CN_Geiger_cleaned_ID5$ID5),]
+
+
+
+dim(CN_Geiger_cleaned) # 7682
+dim(CN_Geiger_cleaned_ID1) # 7628
+dim(CN_Geiger_cleaned_ID2) # 23
+dim(CN_Geiger_cleaned_ID3) # 10
+dim(CN_Geiger_cleaned_ID4) # 3
+dim(CN_Geiger_cleaned_ID5) # 1
+
+7682- (7628 + 23 + 10 + 3 + 1)
+
+CN_Geiger_cleaned_ID1 <- CN_Geiger_cleaned_ID1 %>% dplyr::select(-contains("ID",ignore.case = F))
+CN_Geiger_cleaned_ID2 <- CN_Geiger_cleaned_ID2 %>% dplyr::select(-contains("ID",ignore.case = F))
+CN_Geiger_cleaned_ID3 <- CN_Geiger_cleaned_ID3 %>% dplyr::select(-contains("ID",ignore.case = F))
+CN_Geiger_cleaned_ID4 <- CN_Geiger_cleaned_ID4 %>% dplyr::select(-contains("ID",ignore.case = F))
+CN_Geiger_cleaned_ID5 <- CN_Geiger_cleaned_ID5 %>% dplyr::select(-contains("ID",ignore.case = F))
+
+CN_Geiger_cleaned_with_seq_param <- rbind(CN_Geiger_cleaned_ID1,CN_Geiger_cleaned_ID2,CN_Geiger_cleaned_ID3,CN_Geiger_cleaned_ID4,CN_Geiger_cleaned_ID5)
+CN_Geiger_cleaned_with_seq_param <- CN_Geiger_cleaned_with_seq_param[!duplicated(CN_Geiger_cleaned_with_seq_param$gene_name),]
+CN_Geiger_cleaned_with_seq_param <- CN_Geiger_cleaned_with_seq_param[!is.na(CN_Geiger_cleaned_with_seq_param$CDS_length_CDS),] ## removing rows without annotation, CDS should not be NA as we deal with coding things (IGs and TCRs are removed too).
+
+dim(CN_Geiger_cleaned_with_seq_param) # 7587 6818
+CN_Geiger[!CN_Geiger$gene_name %in% CN_Geiger_cleaned_with_seq_param$gene_name,] # Mostly fusion genes are not picked up (and IGs and TCRs)
+
+dim(CN_Geiger_cleaned_with_seq_param[!is.na(CN_Geiger_cleaned_with_seq_param$CDS_length_CDS),])
+
+CN_Geiger_cleaned_with_seq_param_for_export <- CN_Geiger_cleaned_with_seq_param
+
+CN_Geiger_cleaned_with_seq_param_for_export <- CN_Geiger_cleaned_with_seq_param_for_export[,-c(2:17)]
+
+
+write.table(CN_Geiger_cleaned_with_seq_param_for_export,"/home/ben/Analysis/RF_human/sequences/Sequence_parameters_for_Geiger_data_prot_libv1_21_05_21.csv", sep=";", dec=",", quote = F,row.names = F)
+
+```
+
+
+
+```{r CD4 Tn 0h}
+
+CD4_Tn_0h <- CN_Geiger_cleaned_with_seq_param[,1:2]
+colnames(CD4_Tn_0h)[1:2] <- c("ID","CN")
+CD4_Tn_0h$CN <- log10(CD4_Tn_0h$CN)
+CD4_Tn_0h <- subset(CD4_Tn_0h,CD4_Tn_0h$CN>0)
+dim(CD4_Tn_0h) # 6993
+
+write.table(CD4_Tn_0h,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_0h_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 6h}
+
+CD4_Tn_6h <- CN_Geiger_cleaned_with_seq_param[,c(1,3)]
+colnames(CD4_Tn_6h)[1:2] <- c("ID","CN")
+CD4_Tn_6h$CN <- log10(CD4_Tn_6h$CN)
+CD4_Tn_6h <- subset(CD4_Tn_6h,CD4_Tn_6h$CN>0)
+dim(CD4_Tn_6h) # 6993
+
+write.table(CD4_Tn_6h,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_6h_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 12h}
+
+CD4_Tn_12h <- CN_Geiger_cleaned_with_seq_param[,c(1,4)]
+colnames(CD4_Tn_12h)[1:2] <- c("ID","CN")
+CD4_Tn_12h$CN <- log10(CD4_Tn_12h$CN)
+CD4_Tn_12h <- subset(CD4_Tn_12h,CD4_Tn_12h$CN>0)
+dim(CD4_Tn_12h) # 6993
+
+write.table(CD4_Tn_12h,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_12h_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 24h}
+
+CD4_Tn_24h <- CN_Geiger_cleaned_with_seq_param[,c(1,5)]
+colnames(CD4_Tn_24h)[1:2] <- c("ID","CN")
+CD4_Tn_24h$CN <- log10(CD4_Tn_24h$CN)
+CD4_Tn_24h <- subset(CD4_Tn_24h,CD4_Tn_24h$CN>0)
+dim(CD4_Tn_24h) # 6993
+
+write.table(CD4_Tn_24h,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_24h_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+```{r CD4 Tn 48h}
+
+CD4_Tn_48h <- CN_Geiger_cleaned_with_seq_param[,c(1,6)]
+colnames(CD4_Tn_48h)[1:2] <- c("ID","CN")
+CD4_Tn_48h$CN <- log10(CD4_Tn_48h$CN)
+CD4_Tn_48h <- subset(CD4_Tn_48h,CD4_Tn_48h$CN>0)
+dim(CD4_Tn_48h) # 6993
+
+write.table(CD4_Tn_48h,"/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CD4_Tn_48h_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```

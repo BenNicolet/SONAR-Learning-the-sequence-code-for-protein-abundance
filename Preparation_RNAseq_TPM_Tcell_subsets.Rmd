@@ -1,0 +1,321 @@
+---
+title: "Preparation of TPM tables for RF in T cell susbsets"
+author: "Benoit Nicolet"
+date: "27/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/")
+setwd("/home/ben/Analysis/RF_human/")
+
+
+```
+
+
+```{r BiomaRt}
+## Biomart ##
+ensembl <- useEnsembl(biomart="ensembl",dataset="hsapiens_gene_ensembl", host = "http://apr2018.archive.ensembl.org")
+
+tx2gene <- getBM(attributes=c("ensembl_transcript_id_version","external_gene_name","gene_biotype"), mart = ensembl)
+tx2gene <- subset(tx2gene,tx2gene$gene_biotype=="protein_coding")
+
+
+```
+
+
+```{r CD4 Tn}
+CD4_Tn1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_1_ERR431571/quant.sf")
+CD4_Tn2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_2_ERR431574/quant.sf")
+CD4_Tn3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_3_ERR431580/quant.sf")
+CD4_Tn4<- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_4_ERR431581/quant.sf")
+CD4_Tn5 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_5_ERR431610/quant.sf")
+
+CD4_Tn1 <- data.frame("ID"=CD4_Tn1$Name,"Tn1_TPM"=CD4_Tn1$TPM)
+CD4_Tn2 <- data.frame("ID"=CD4_Tn2$Name,"Tn2_TPM"=CD4_Tn2$TPM)
+CD4_Tn3 <- data.frame("ID"=CD4_Tn3$Name,"Tn3_TPM"=CD4_Tn3$TPM)
+CD4_Tn4 <- data.frame("ID"=CD4_Tn4$Name,"Tn4_TPM"=CD4_Tn4$TPM)
+CD4_Tn5 <- data.frame("ID"=CD4_Tn5$Name,"Tn5_TPM"=CD4_Tn5$TPM)
+
+CD4_Tn <- list(CD4_Tn1,CD4_Tn2,CD4_Tn3,CD4_Tn4,CD4_Tn5)
+
+CD4_Tn <- join_all(CD4_Tn,by = "ID")
+
+CD4_Tn$TPM <- rowMeans(CD4_Tn[2:6])
+CD4_Tn <- subset(CD4_Tn,CD4_Tn$TPM>0)
+dim(CD4_Tn) # 110680      7
+
+CD4_Tn <- data.frame("ID"=CD4_Tn$ID,"TPM"=CD4_Tn$TPM)
+
+CD4_Tn <- merge(CD4_Tn,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD4_Tn) # 102396      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD4_Tn <- ddply(CD4_Tn,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD4_Tn$TPM <- log10(CD4_Tn$TPM)
+CD4_Tn <- subset(CD4_Tn, CD4_Tn$TPM>=-1)
+colnames(CD4_Tn)[1]="ID"
+dim(CD4_Tn) # 15225 genes 
+
+write.table(CD4_Tn,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD4_Tn_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+```{r CD4 Tcm}
+CD4_Tcm1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_1_ERR431582/quant.sf")
+CD4_Tcm2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_2_ERR431598/quant.sf")
+CD4_Tcm3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_3_ERR431614/quant.sf")
+CD4_Tcm4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_4_ERR431620/quant.sf")
+CD4_Tcm5 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_5_ERR431626/quant.sf")
+
+CD4_Tcm1 <- data.frame("ID"=CD4_Tcm1$Name,"Tcm1_TPM"=CD4_Tcm1$TPM)
+CD4_Tcm2 <- data.frame("ID"=CD4_Tcm2$Name,"Tcm2_TPM"=CD4_Tcm2$TPM)
+CD4_Tcm3 <- data.frame("ID"=CD4_Tcm3$Name,"Tcm3_TPM"=CD4_Tcm3$TPM)
+CD4_Tcm4 <- data.frame("ID"=CD4_Tcm4$Name,"Tcm4_TPM"=CD4_Tcm4$TPM)
+CD4_Tcm5 <- data.frame("ID"=CD4_Tcm5$Name,"Tcm5_TPM"=CD4_Tcm5$TPM)
+
+CD4_Tcm <- list(CD4_Tcm1,CD4_Tcm2,CD4_Tcm3,CD4_Tcm4,CD4_Tcm5)
+
+CD4_Tcm <- join_all(CD4_Tcm,by = "ID")
+
+CD4_Tcm$TPM <- rowMeans(CD4_Tcm[2:6])
+CD4_Tcm <- subset(CD4_Tcm,CD4_Tcm$TPM>0)
+dim(CD4_Tcm) # 108621      7
+
+CD4_Tcm <- data.frame("ID"=CD4_Tcm$ID,"TPM"=CD4_Tcm$TPM)
+
+CD4_Tcm <- merge(CD4_Tcm,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD4_Tcm) # 99658      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD4_Tcm <- ddply(CD4_Tcm,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD4_Tcm$TPM <- log10(CD4_Tcm$TPM)
+CD4_Tcm <- subset(CD4_Tcm, CD4_Tcm$TPM>=-1)
+colnames(CD4_Tcm)[1]="ID"
+dim(CD4_Tcm) # 15490 genes 
+
+write.table(CD4_Tcm,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD4_Tcm_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r CD4 Tem}
+CD4_Tem1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_1_ERR431575/quant.sf")
+CD4_Tem2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_2_ERR431588/quant.sf")
+CD4_Tem3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_3_ERR431603/quant.sf")
+CD4_Tem4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_4_ERR431616/quant.sf")
+
+
+CD4_Tem1 <- data.frame("ID"=CD4_Tem1$Name,"Tem1_TPM"=CD4_Tem1$TPM)
+CD4_Tem2 <- data.frame("ID"=CD4_Tem2$Name,"Tem2_TPM"=CD4_Tem2$TPM)
+CD4_Tem3 <- data.frame("ID"=CD4_Tem3$Name,"Tem3_TPM"=CD4_Tem3$TPM)
+CD4_Tem4 <- data.frame("ID"=CD4_Tem4$Name,"Tem4_TPM"=CD4_Tem4$TPM)
+
+
+CD4_Tem <- list(CD4_Tem1,CD4_Tem2,CD4_Tem3,CD4_Tem4)
+
+CD4_Tem <- join_all(CD4_Tem,by = "ID")
+
+CD4_Tem$TPM <- rowMeans(CD4_Tem[2:5])
+CD4_Tem <- subset(CD4_Tem,CD4_Tem$TPM>0)
+dim(CD4_Tem) # 107605      7
+
+CD4_Tem <- data.frame("ID"=CD4_Tem$ID,"TPM"=CD4_Tem$TPM)
+
+CD4_Tem <- merge(CD4_Tem,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD4_Tem) # 98773      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD4_Tem <- ddply(CD4_Tem,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD4_Tem$TPM <- log10(CD4_Tem$TPM)
+CD4_Tem <- subset(CD4_Tem, CD4_Tem$TPM>=-1)
+colnames(CD4_Tem)[1]="ID"
+dim(CD4_Tem) # 16274 genes 
+
+write.table(CD4_Tem,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD4_Tem_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r CD8 Tn}
+CD8_Tn1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_1_SRR6298258/quant.sf")
+CD8_Tn2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_2_SRR6298286/quant.sf")
+CD8_Tn3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_3_SRR6298315/quant.sf")
+CD8_Tn4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_4_SRR6298344/quant.sf")
+
+
+CD8_Tn1 <- data.frame("ID"=CD8_Tn1$Name,"Tn1_TPM"=CD8_Tn1$TPM)
+CD8_Tn2 <- data.frame("ID"=CD8_Tn2$Name,"Tn2_TPM"=CD8_Tn2$TPM)
+CD8_Tn3 <- data.frame("ID"=CD8_Tn3$Name,"Tn3_TPM"=CD8_Tn3$TPM)
+CD8_Tn4 <- data.frame("ID"=CD8_Tn4$Name,"Tn4_TPM"=CD8_Tn4$TPM)
+
+
+CD8_Tn <- list(CD8_Tn1,CD8_Tn2,CD8_Tn3,CD8_Tn4)
+
+CD8_Tn <- join_all(CD8_Tn,by = "ID")
+
+CD8_Tn$TPM <- rowMeans(CD8_Tn[2:5])
+CD8_Tn <- subset(CD8_Tn,CD8_Tn$TPM>0)
+dim(CD8_Tn) # 93455      6
+
+CD8_Tn <- data.frame("ID"=CD8_Tn$ID,"TPM"=CD8_Tn$TPM)
+
+CD8_Tn <- merge(CD8_Tn,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD8_Tn) # 86705      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD8_Tn <- ddply(CD8_Tn,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD8_Tn$TPM <- log10(CD8_Tn$TPM)
+CD8_Tn <- subset(CD8_Tn, CD8_Tn$TPM>=-1)
+colnames(CD8_Tn)[1]="ID"
+dim(CD8_Tn) # 15241 genes 
+
+write.table(CD8_Tn,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD8_Tn_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD8 Tcm}
+CD8_Tcm1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_1_SRR6298259/quant.sf")
+CD8_Tcm2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_2_SRR6298287/quant.sf")
+CD8_Tcm3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_3_SRR6298316/quant.sf")
+CD8_Tcm4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_4_SRR6298345/quant.sf")
+
+
+CD8_Tcm1 <- data.frame("ID"=CD8_Tcm1$Name,"Tcm1_TPM"=CD8_Tcm1$TPM)
+CD8_Tcm2 <- data.frame("ID"=CD8_Tcm2$Name,"Tcm2_TPM"=CD8_Tcm2$TPM)
+CD8_Tcm3 <- data.frame("ID"=CD8_Tcm3$Name,"Tcm3_TPM"=CD8_Tcm3$TPM)
+CD8_Tcm4 <- data.frame("ID"=CD8_Tcm4$Name,"Tcm4_TPM"=CD8_Tcm4$TPM)
+
+
+CD8_Tcm <- list(CD8_Tcm1,CD8_Tcm2,CD8_Tcm3,CD8_Tcm4)
+
+CD8_Tcm <- join_all(CD8_Tcm,by = "ID")
+
+CD8_Tcm$TPM <- rowMeans(CD8_Tcm[2:5])
+CD8_Tcm <- subset(CD8_Tcm,CD8_Tcm$TPM>0)
+dim(CD8_Tcm) # 93455      6
+
+CD8_Tcm <- data.frame("ID"=CD8_Tcm$ID,"TPM"=CD8_Tcm$TPM)
+
+CD8_Tcm <- merge(CD8_Tcm,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD8_Tcm) # 86705      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD8_Tcm <- ddply(CD8_Tcm,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD8_Tcm$TPM <- log10(CD8_Tcm$TPM)
+CD8_Tcm <- subset(CD8_Tcm, CD8_Tcm$TPM>=-1)
+colnames(CD8_Tcm)[1]="ID"
+dim(CD8_Tcm) # 15241 genes 
+
+write.table(CD8_Tcm,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD8_Tcm_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD8 Tem}
+CD8_Tem1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_1_SRR6298260/quant.sf")
+CD8_Tem2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_2_SRR6298288/quant.sf")
+CD8_Tem3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_3_SRR6298317/quant.sf")
+CD8_Tem4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_4_SRR6298346/quant.sf")
+
+
+CD8_Tem1 <- data.frame("ID"=CD8_Tem1$Name,"Tem1_TPM"=CD8_Tem1$TPM)
+CD8_Tem2 <- data.frame("ID"=CD8_Tem2$Name,"Tem2_TPM"=CD8_Tem2$TPM)
+CD8_Tem3 <- data.frame("ID"=CD8_Tem3$Name,"Tem3_TPM"=CD8_Tem3$TPM)
+CD8_Tem4 <- data.frame("ID"=CD8_Tem4$Name,"Tem4_TPM"=CD8_Tem4$TPM)
+
+
+CD8_Tem <- list(CD8_Tem1,CD8_Tem2,CD8_Tem3,CD8_Tem4)
+
+CD8_Tem <- join_all(CD8_Tem,by = "ID")
+
+CD8_Tem$TPM <- rowMeans(CD8_Tem[2:5])
+CD8_Tem <- subset(CD8_Tem,CD8_Tem$TPM>0)
+dim(CD8_Tem) # 93678      6
+
+CD8_Tem <- data.frame("ID"=CD8_Tem$ID,"TPM"=CD8_Tem$TPM)
+
+CD8_Tem <- merge(CD8_Tem,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD8_Tem) # 87444      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD8_Tem <- ddply(CD8_Tem,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD8_Tem$TPM <- log10(CD8_Tem$TPM)
+CD8_Tem <- subset(CD8_Tem, CD8_Tem$TPM>=-1)
+colnames(CD8_Tem)[1]="ID"
+dim(CD8_Tem) # 15184 genes 
+
+write.table(CD8_Tem,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD8_Tem_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+
+```{r CD8 Teff}
+CD8_Teff1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_1_SRR6298261/quant.sf")
+CD8_Teff2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_2_SRR6298289/quant.sf")
+CD8_Teff3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_3_SRR6298318/quant.sf")
+CD8_Teff4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_4_SRR6298353/quant.sf")
+
+
+CD8_Teff1 <- data.frame("ID"=CD8_Teff1$Name,"Teff1_TPM"=CD8_Teff1$TPM)
+CD8_Teff2 <- data.frame("ID"=CD8_Teff2$Name,"Teff2_TPM"=CD8_Teff2$TPM)
+CD8_Teff3 <- data.frame("ID"=CD8_Teff3$Name,"Teff3_TPM"=CD8_Teff3$TPM)
+CD8_Teff4 <- data.frame("ID"=CD8_Teff4$Name,"Teff4_TPM"=CD8_Teff4$TPM)
+
+
+CD8_Teff <- list(CD8_Teff1,CD8_Teff2,CD8_Teff3,CD8_Teff4)
+
+CD8_Teff <- join_all(CD8_Teff,by = "ID")
+
+CD8_Teff$TPM <- rowMeans(CD8_Teff[2:5])
+CD8_Teff <- subset(CD8_Teff,CD8_Teff$TPM>0)
+dim(CD8_Teff) # 93749      6
+
+CD8_Teff <- data.frame("ID"=CD8_Teff$ID,"TPM"=CD8_Teff$TPM)
+
+CD8_Teff <- merge(CD8_Teff,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(CD8_Teff) # 87309      4
+
+## making TPM per gene ##
+registerDoMC(4)
+CD8_Teff <- ddply(CD8_Teff,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+CD8_Teff$TPM <- log10(CD8_Teff$TPM)
+CD8_Teff <- subset(CD8_Teff, CD8_Teff$TPM>=-1)
+colnames(CD8_Teff)[1]="ID"
+dim(CD8_Teff) # 15122 genes 
+
+write.table(CD8_Teff,"/home/ben/Analysis/RF_human/T_cell_subsets/RNA/CD8_Teff_TPM_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
