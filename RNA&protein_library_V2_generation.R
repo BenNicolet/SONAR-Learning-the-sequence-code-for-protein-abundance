@@ -1,7 +1,7 @@
 
 #title: "ARE_in_hg38"
 #author: "Benoit Nicolet"
-#date: "2/9/2021"
+#date: "9/9/2021"
 
 
 library(plyr)
@@ -31,8 +31,15 @@ ensembl = useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
 #attributes_ens <- listAttributes(ensembl)
 #View(attributes_ens)
 
-IDs_genenames_coding <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcript_id", "external_gene_name","gene_biotype"), mart = ensembl, filters = "with_ccds", values = TRUE)
+IDs_genenames_coding <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcript_id", "external_gene_name","transcript_biotype"), mart = ensembl)
+IDs_genenames_coding <- IDs_genenames_coding[IDs_genenames_coding$transcript_biotype=="protein_coding",]
+dim(IDs_genenames_coding)
+IDs_genenames_coding$transcript_biotype <- NULL
 
+GeneID_uniprot <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcript_id", "external_gene_name","uniprotswissprot","transcript_biotype"), mart = ensembl)
+GeneID_uniprot <- GeneID_uniprot[GeneID_uniprot$transcript_biotype=="protein_coding",]
+GeneID_uniprot$transcript_biotype <- NULL
+dim(GeneID_uniprot)
 
 ###__________________________________________________________________________________________###
 ###__________________________________________3'UTR___________________________________________###
@@ -40,7 +47,7 @@ IDs_genenames_coding <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcrip
 
 ## importing the formated Fasta file and processing ##
 
-## Here we re-format the fasta format to table format ##
+# Here we re-format the fasta format to table format ##
 # UTR3_fasta <- readtext::readtext("/home/ben/Analysis/RF_human/Library_V2_Aug2021/3UTR_ensembl_r104.txt")
 # glimpse(UTR3_fasta)
 # UTR3_fasta <- gsub("\\\n","",UTR3_fasta) # removing the newlines
@@ -176,12 +183,12 @@ write.table(UTR3_fasta_export,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/3U
 ## importing the formated Fasta file and processing ##
 
 ## Here we re-format the fasta format to table format ##
-CDS_fasta <- readtext::readtext("/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_ensembl_r104.txt")
-glimpse(CDS_fasta)
-CDS_fasta <- gsub("\\\n","",CDS_fasta) # removing the newlines
-CDS_fasta <- gsub(">","\\\n>",CDS_fasta) ## replace > by \n>
-
-write(CDS_fasta,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_ensembl_r104_formatted.txt")
+# CDS_fasta <- readtext::readtext("/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_ensembl_r104.txt")
+# glimpse(CDS_fasta)
+# CDS_fasta <- gsub("\\\n","",CDS_fasta) # removing the newlines
+# CDS_fasta <- gsub(">","\\\n>",CDS_fasta) ## replace > by \n>
+# 
+# write(CDS_fasta,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_ensembl_r104_formatted.txt")
 
 CDS_fasta <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_ensembl_r104_formatted.txt",sep="\t",header = F)
 
@@ -354,12 +361,12 @@ write.table(CDS_fasta_export,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS
 ## importing the formated Fasta file and processing ##
 
 ## Here we re-format the fasta format to table format ##
-UTR5_fasta <- readtext::readtext("/home/ben/Analysis/RF_human/Library_V2_Aug2021/5UTR_ensembl_r104.txt")
-glimpse(UTR5_fasta)
-UTR5_fasta <- gsub("\\\n","",UTR5_fasta) # removing the newlines
-UTR5_fasta <- gsub(">","\\\n>",UTR5_fasta) ## replace > by \n>
-
-write(UTR5_fasta,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/5UTR_ensembl_r104_formatted.txt")
+# UTR5_fasta <- readtext::readtext("/home/ben/Analysis/RF_human/Library_V2_Aug2021/5UTR_ensembl_r104.txt")
+# #glimpse(UTR5_fasta)
+# UTR5_fasta <- gsub("\\\n","",UTR5_fasta) # removing the newlines
+# UTR5_fasta <- gsub(">","\\\n>",UTR5_fasta) ## replace > by \n>
+# 
+# write(UTR5_fasta,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/5UTR_ensembl_r104_formatted.txt")
 
 UTR5_fasta <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/5UTR_ensembl_r104_formatted.txt",sep="\t",header = F)
 
@@ -625,9 +632,9 @@ CDS_fasta <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/CDS_libr
 UTR3_fasta <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/3UTR_library_v2_RBP_GC_length.csv",sep=";", dec=",")
 miRDB_CD8 <- read.delim("/home/ben/Analysis/RF_human/sequences/miRNA/miRDB_CD8_wrangled_avg_per_tx.csv", sep = ";", dec=",")
 
-table(duplicated(miRDB_CD8$ensembl_transcript_id))
-table(duplicated(Gene_conservation$ensembl_transcript_id))
-Gene_conservation <- Gene_conservation[!duplicated(Gene_conservation$ensembl_transcript_id),]
+# table(duplicated(miRDB_CD8$ensembl_transcript_id))
+# table(duplicated(Gene_conservation$ensembl_transcript_id))
+# Gene_conservation <- Gene_conservation[!duplicated(Gene_conservation$ensembl_transcript_id),]
 
 
 
@@ -665,10 +672,14 @@ Library_V2$external_gene_name <- NULL
 
 write.table(Library_V2,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/RNA_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB.csv",sep = ";", dec = ",",row.names = F)
 
+#Library_V2 <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/RNA_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB.csv",sep = ";", dec = ",")
+gc()
 
+doMC::registerDoMC(cores = 12)
+Library_V2_per_gene <- plyr::ddply(Library_V2,"ensembl_gene_id", numcolwise(mean),.parallel = T, .progress = T)
+ 
 
-
-
+write.table(Library_V2_per_gene,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/RNA_library_v2_per_gene_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB.csv",sep = ";", dec = ",",row.names = F)
 
 
 
@@ -680,78 +691,80 @@ write.table(Library_V2,"/home/ben/Analysis/RF_human/Library_V2_Aug2021/RNA_libra
 
 ## Getting Unitprot annotation ##
 # Downloaded from Uniprot.org on June 4th 2020
-Uniprot_ref <- read.delim("/home/ben/Analysis/RF_human/sequences/uniprot-filtered-organism Homo+sapiens_04-06-2020.tab",sep="\t")
-Uniprot_ref$Status <- NULL
-Uniprot_ref$Protein.names <- NULL
-Uniprot_ref$Entry.name <- NULL
-Uniprot_ref$Cross.reference..GeneID. <- NULL
-Uniprot_ref$Gene.names <- NULL
-
-Uniprot_ref$tx.id <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[1])})
-Uniprot_ref$tx.id <- mapply(strsplit(as.character(Uniprot_ref$tx.id)," "), FUN=function(x){(as.character(x)[1])})
-
-Uniprot_ref$tx.id2 <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[2])})
-Uniprot_ref$tx.id2 <- mapply(strsplit(as.character(Uniprot_ref$tx.id2)," "), FUN=function(x){(as.character(x)[1])})
-
-Uniprot_ref$tx.id3 <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[3])})
-Uniprot_ref$tx.id3 <- mapply(strsplit(as.character(Uniprot_ref$tx.id3)," "), FUN=function(x){(as.character(x)[1])})
-
-Uniprot_ref_id1 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id",by.y="ensembl_transcript_id",all=F)
-Uniprot_ref_id2 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id2",by.y="ensembl_transcript_id")
-Uniprot_ref_id3 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id3",by.y="ensembl_transcript_id")
-
-dim(Uniprot_ref_id1[Uniprot_ref_id1$tx.id %in% Library_V2$tx.id,])
-dim(Uniprot_ref_id2[Uniprot_ref_id2$tx.id2 %in% Library_V2$tx.id,])
-dim(Uniprot_ref_id3[Uniprot_ref_id3$tx.id3 %in% Library_V2$tx.id,])
-dim(Uniprot_ref)
-
-dim(Uniprot_ref[!Uniprot_ref$tx.id %in% Uniprot_ref_id1$tx.id,])
-Uniprot_ref_not_id <- Uniprot_ref[!Uniprot_ref$tx.id %in% Uniprot_ref_id1$tx.id,]
-Uniprot_ref_not_id <- merge(Uniprot_ref_not_id,IDs_genenames_coding, by.x="tx.id2",by.y="ensembl_transcript_id")
-dim(Uniprot_ref_not_id)
-
-dim(Uniprot_ref_id1)
-colnames(Uniprot_ref_id1)
-colnames(Uniprot_ref_not_id)
-
-Uniprot_ref_id1$tx.id2 <- NULL
-Uniprot_ref_not_id$tx.id <- NULL
-colnames(Uniprot_ref_not_id)[1] <- "tx.id"
-
-colnames(Uniprot_ref_id1) == colnames(Uniprot_ref_not_id)
-
-Uniprot_ref_id1_2 <- rbind(Uniprot_ref_id1, Uniprot_ref_not_id)
-dim(Uniprot_ref_id1_2)
-table(duplicated(Uniprot_ref_id1_2$Entry))
-
-dim(Uniprot_ref[!Uniprot_ref$Entry %in% Uniprot_ref_id1_2$Entry,])
-Uniprot_ref_not_id2 <- Uniprot_ref[!Uniprot_ref$Entry %in% Uniprot_ref_id1_2$Entry,]
-Uniprot_ref_not_id2 <- merge(Uniprot_ref_not_id2,IDs_genenames_coding, by.x="tx.id3",by.y="ensembl_transcript_id")
-dim(Uniprot_ref_not_id2)
-
-## Merging ##
-colnames(Uniprot_ref_id1_2)
-colnames(Uniprot_ref_not_id2)
-Uniprot_ref_not_id2$tx.id <- NULL
-Uniprot_ref_not_id2$tx.id2 <- NULL
-
-colnames(Uniprot_ref_not_id2)[1] <- "tx.id"
-colnames(Uniprot_ref_id1_2) == colnames(Uniprot_ref_not_id2)
-
-
-Uniprot_ref_id1_2_3 <- rbind(Uniprot_ref_id1_2,Uniprot_ref_not_id2)
-dim(Uniprot_ref_id1_2_3)
-
-table(duplicated(Uniprot_ref_id1_2_3$Entry))
-table(duplicated(Uniprot_ref_id1_2_3$tx.id))
-
-
-
-
-Uniprot_ref_id1_2_3 <- subset(Uniprot_ref_id1_2_3,!is.na(Uniprot_ref_id1_2_3$tx.id)==TRUE)
-
-dim(distinct(Uniprot_ref_id1_2_3,external_gene_name))
-
+Uniprot_ref <- GeneID_uniprot
+Uniprot_ref <- Uniprot_ref[Uniprot_ref$uniprotswissprot>1,]
+# Uniprot_ref <- read.delim("/home/ben/Analysis/RF_human/sequences/uniprot-filtered-organism Homo+sapiens_04-06-2020.tab",sep="\t")
+# Uniprot_ref$Status <- NULL
+# Uniprot_ref$Protein.names <- NULL
+# Uniprot_ref$Entry.name <- NULL
+# Uniprot_ref$Cross.reference..GeneID. <- NULL
+# Uniprot_ref$Gene.names <- NULL
+# 
+# Uniprot_ref$tx.id <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[1])})
+# Uniprot_ref$tx.id <- mapply(strsplit(as.character(Uniprot_ref$tx.id)," "), FUN=function(x){(as.character(x)[1])})
+# 
+# Uniprot_ref$tx.id2 <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[2])})
+# Uniprot_ref$tx.id2 <- mapply(strsplit(as.character(Uniprot_ref$tx.id2)," "), FUN=function(x){(as.character(x)[1])})
+# 
+# Uniprot_ref$tx.id3 <- mapply(strsplit(as.character(Uniprot_ref$Ensembl.transcript),";"), FUN=function(x){(as.character(x)[3])})
+# Uniprot_ref$tx.id3 <- mapply(strsplit(as.character(Uniprot_ref$tx.id3)," "), FUN=function(x){(as.character(x)[1])})
+# 
+# Uniprot_ref_id1 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id",by.y="ensembl_transcript_id",all=F)
+# Uniprot_ref_id2 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id2",by.y="ensembl_transcript_id")
+# Uniprot_ref_id3 <- merge(Uniprot_ref,IDs_genenames_coding, by.x="tx.id3",by.y="ensembl_transcript_id")
+# 
+# dim(Uniprot_ref_id1[Uniprot_ref_id1$tx.id %in% Library_V2$tx.id,])
+# dim(Uniprot_ref_id2[Uniprot_ref_id2$tx.id2 %in% Library_V2$tx.id,])
+# dim(Uniprot_ref_id3[Uniprot_ref_id3$tx.id3 %in% Library_V2$tx.id,])
+# dim(Uniprot_ref)
+# 
+# dim(Uniprot_ref[!Uniprot_ref$tx.id %in% Uniprot_ref_id1$tx.id,])
+# Uniprot_ref_not_id <- Uniprot_ref[!Uniprot_ref$tx.id %in% Uniprot_ref_id1$tx.id,]
+# Uniprot_ref_not_id <- merge(Uniprot_ref_not_id,IDs_genenames_coding, by.x="tx.id2",by.y="ensembl_transcript_id")
+# dim(Uniprot_ref_not_id)
+# 
+# dim(Uniprot_ref_id1)
+# colnames(Uniprot_ref_id1)
+# colnames(Uniprot_ref_not_id)
+# 
+# Uniprot_ref_id1$tx.id2 <- NULL
+# Uniprot_ref_not_id$tx.id <- NULL
+# colnames(Uniprot_ref_not_id)[1] <- "tx.id"
+# 
+# colnames(Uniprot_ref_id1) == colnames(Uniprot_ref_not_id)
+# 
+# Uniprot_ref_id1_2 <- rbind(Uniprot_ref_id1, Uniprot_ref_not_id)
+# dim(Uniprot_ref_id1_2)
+# table(duplicated(Uniprot_ref_id1_2$Entry))
+# 
+# dim(Uniprot_ref[!Uniprot_ref$Entry %in% Uniprot_ref_id1_2$Entry,])
+# Uniprot_ref_not_id2 <- Uniprot_ref[!Uniprot_ref$Entry %in% Uniprot_ref_id1_2$Entry,]
+# Uniprot_ref_not_id2 <- merge(Uniprot_ref_not_id2,IDs_genenames_coding, by.x="tx.id3",by.y="ensembl_transcript_id")
+# dim(Uniprot_ref_not_id2)
+# 
+# ## Merging ##
+# colnames(Uniprot_ref_id1_2)
+# colnames(Uniprot_ref_not_id2)
+# Uniprot_ref_not_id2$tx.id <- NULL
+# Uniprot_ref_not_id2$tx.id2 <- NULL
+# 
+# colnames(Uniprot_ref_not_id2)[1] <- "tx.id"
+# colnames(Uniprot_ref_id1_2) == colnames(Uniprot_ref_not_id2)
+# 
+# 
+# Uniprot_ref_id1_2_3 <- rbind(Uniprot_ref_id1_2,Uniprot_ref_not_id2)
+# dim(Uniprot_ref_id1_2_3)
+# 
+# table(duplicated(Uniprot_ref_id1_2_3$Entry))
+# table(duplicated(Uniprot_ref_id1_2_3$tx.id))
+# 
+# 
+# 
+# 
+# Uniprot_ref_id1_2_3 <- subset(Uniprot_ref_id1_2_3,!is.na(Uniprot_ref_id1_2_3$tx.id)==TRUE)
+# 
+# dim(distinct(Uniprot_ref_id1_2_3,external_gene_name))
+# 
 
 
 ### PTM annotation ###
@@ -879,17 +892,14 @@ Prot_annotation <- merge(Prot_annotation, Succinylation, by="Entry",all=T)
 Prot_annotation <- merge(Prot_annotation, Sumoylation, by="Entry",all=T)
 Prot_annotation <- merge(Prot_annotation, Ubiquitination, by="Entry",all=T)
 
-Library_V2_Prot <- merge(Prot_annotation, Uniprot_ref_id1_2_3, by="Entry",all.y=T)
+Library_V2_Prot <- merge(Prot_annotation, Uniprot_ref, by.x="Entry",by.y = "uniprotswissprot",all.y=T)
 
 dim(Prot_annotation)
-dim(Uniprot_ref_id1_2_3)
 dim(Library_V2_Prot)
 
 Library_V2_Prot[is.na(Library_V2_Prot)]<-0
 
-
-
-Library_V2_Prot_per_uniprot_entry <- merge(Library_V2_Prot,Library_V2, by="tx.id", all.x=T)
+Library_V2_Prot_per_uniprot_entry <- merge(Library_V2_Prot,Library_V2,by.x="ensembl_transcript_id", by.y="tx.id", all.x=T)
 
 #Library_V2_Prot_per_uniprot_entry$ensembl_gene_id.x <- NULL
 Library_V2_Prot_per_uniprot_entry$ensembl_gene_id.y <- NULL
@@ -898,15 +908,15 @@ Library_V2_Prot_per_uniprot_entry$Ensembl.transcript <- NULL
 Library_V2_Prot_per_uniprot_entry$gene_biotype.y <- NULL
 Library_V2_Prot_per_uniprot_entry$external_gene_name <- NULL
 
-
-doMC::registerDoMC(cores = 6)
-
+doMC::registerDoMC(cores = 12)
+gc()
 Library_V2_Prot_per_gene <- plyr::ddply(Library_V2_Prot_per_uniprot_entry,"gene_name", numcolwise(mean),.parallel = T, .progress = T)
+
+gc()
+Library_V2_Prot_per_uniprot_entry <- plyr::ddply(Library_V2_Prot_per_uniprot_entry,"Entry", numcolwise(mean),.parallel = T, .progress = T)
 
 dim(Library_V2_Prot_per_gene)
 dim(Library_V2_Prot_per_uniprot_entry)
-
-
 
 
 
