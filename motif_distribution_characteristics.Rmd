@@ -1,0 +1,616 @@
+---
+title: "Analysis of flanking sequence of a motif and motif distribution"
+author: "Benoit Nicolet"
+date: "25/2/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(dplyr)
+library(seqinr)
+library(stringr)
+library(stringi)
+library(qdapRegex)
+library(dplyr)
+library(Biostrings)
+library(biomaRt)
+library(ggplot2)
+library(data.table)
+
+#BiocManager::install("ggseqlogo")
+library(Logolas)
+library(ggseqlogo)
+
+#install.packages("ggseqlogo")
+
+#BiocManager::install("DESeq2")
+#library(motifmatchr)
+
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/motif_distribution/")
+setwd("/home/ben/Analysis/RF_human/motif_distribution/")
+
+```
+
+
+```{r importing the formated Fasta file and processing}
+## re-importing ##
+#UTR3_fasta <- read.delim("/Users/stinky/Desktop/Sequences_info/3'UTR_ensembl_mart_export_nobreaks.txt",sep="\t",header = F)
+UTR3_fasta <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/3UTR_ensembl_r104_formatted.txt",sep="\t",header = F)
+
+UTR3_fasta$tx.id <- UTR3_fasta$V1
+UTR3_fasta$tx.id <- gsub(">","",UTR3_fasta$tx.id)
+
+UTR3_fasta$sequence <- UTR3_fasta$tx.id
+UTR3_fasta$sequence <- gsub('^...............','',UTR3_fasta$sequence)
+
+UTR3_fasta$tx.id <- gsub("A","",UTR3_fasta$tx.id)
+UTR3_fasta$tx.id <- gsub("T","",UTR3_fasta$tx.id)
+UTR3_fasta$tx.id <- gsub("G","",UTR3_fasta$tx.id)
+UTR3_fasta$tx.id <- gsub("C","",UTR3_fasta$tx.id)
+UTR3_fasta$tx.id <- gsub("ENS","ENST",UTR3_fasta$tx.id)
+
+UTR3_fasta$V1 <- NULL
+
+
+UTR3_fasta$UTR3_length <- mapply(strsplit(as.character(UTR3_fasta$sequence),","),FUN=function(x){nchar(x)})
+
+dim(UTR3_fasta)
+#UTR3_fasta <- merge(UTR3_fasta, IDs_genenames_coding, by.x="tx.id",by.y="ensembl_transcript_id",all.x=T)
+
+
+UTR3_fasta <- UTR3_fasta[!UTR3_fasta$sequence=="Sequence unavailable",]
+
+table(duplicated(UTR3_fasta$tx.id))
+
+## oooh yeah : )
+
+```
+
+
+## ATTTA flanking motif
+```{r ATTTA flanking motif}
+
+sequence_input <- UTR3_fasta[1:1000,]
+extracted_motif_final_list <- list()
+
+for (line in 1:length(sequence_input$sequence)) {
+  extracted_motif_list_per_seq <- list()
+  tail_sequence <- sequence_input$sequence[line]
+  
+  for (l in 1:(stringr::str_count(tail_sequence,"ATTTA"))) {
+  extracted_motif <- stringr::str_extract(tail_sequence,".....ATTTA.....")
+  extracted_motif_list_per_seq[[l+1]] <- extracted_motif
+  extracted_motif_final_list[[line]] <- do.call(rbind,extracted_motif_list_per_seq)
+  
+  tail_sequence <- mapply(strsplit(as.character(tail_sequence),stringr::str_extract(tail_sequence,as.character(extracted_motif))),FUN=function(x){(as.character(x)[2])})
+  #extracted_motif_final_list[[line]] <- extracted_motif_list_per_seq 
+  }
+  
+  }
+extracted_motif_final_list
+
+motifs_db <- do.call(rbind,extracted_motif_final_list)
+motifs_db
+
+
+
+motifs_db <- data.frame(motifs_db)
+motifs_db <- subset(motifs_db,!is.na(motifs_db))
+
+motifs_db$motifs_db <- gsub("T","U",motifs_db$motifs_db)
+# 
+# motifs_db$left <- substring(motifs_db$motifs_db, 1, 10)
+# motifs_db$right <- substring(motifs_db$motifs_db, 16, 26)
+ggseqlogo(motifs_db$motifs_db, method="probability")+
+  theme(aspect.ratio = .125)+
+  annotate('rect', xmin = 5.5, xmax = 10.5, ymin = 0, ymax = 1, alpha = .1, col='black', fill='black')
+
+```
+
+
+
+
+## CTTT flanking motif
+```{r CTTT flanking motif}
+
+sequence_input <- UTR3_fasta[1:1000,]
+extracted_motif_final_list <- list()
+
+for (line in 1:length(sequence_input$sequence)) {
+  extracted_motif_list_per_seq <- list()
+  tail_sequence <- sequence_input$sequence[line]
+  
+  for (l in 1:(stringr::str_count(tail_sequence,"CTTT"))) {
+  extracted_motif <- stringr::str_extract(tail_sequence,".....CTTT.....")
+  extracted_motif_list_per_seq[[l+1]] <- extracted_motif
+  extracted_motif_final_list[[line]] <- do.call(rbind,extracted_motif_list_per_seq)
+  
+  tail_sequence <- mapply(strsplit(as.character(tail_sequence),stringr::str_extract(tail_sequence,as.character(extracted_motif))),FUN=function(x){(as.character(x)[2])})
+  #extracted_motif_final_list[[line]] <- extracted_motif_list_per_seq 
+  }
+  
+  }
+#extracted_motif_final_list
+
+motifs_db_CTTT <- do.call(rbind,extracted_motif_final_list)
+motifs_db_CTTT
+
+
+
+motifs_db_CTTT <- data.frame(motifs_db_CTTT)
+motifs_db_CTTT <- subset(motifs_db_CTTT,!is.na(motifs_db_CTTT))
+motifs_db_CTTT$motifs_db_CTTT <- gsub("T","U",motifs_db_CTTT$motifs_db_CTTT)
+dim(motifs_db_CTTT)
+
+#motifs_db_CTTT <- gsub("CTTT","NNNN",motifs_db_CTTT)
+# motifs_db_CTTT$left <- substring(motifs_db_CTTT$motifs_db_CTTT, 1, 10)
+# motifs_db_CTTT$right <- substring(motifs_db_CTTT$motifs_db_CTTT, 16, 26)
+
+
+ggseqlogo(motifs_db_CTTT$motifs_db_CTTT, method="probability")+
+  theme(aspect.ratio = .125)+
+  annotate('rect', xmin = 5.5, xmax = 9.5, ymin = 0, ymax = 1, alpha = .1, col='black', fill='black')
+
+```
+
+## CTTT flanking motif
+```{r CTTT flanking motif}
+
+sequence_input <- UTR3_fasta[1:1000,]
+extracted_motif_final_list <- list()
+
+for (line in 1:length(sequence_input$sequence)) {
+  extracted_motif_list_per_seq <- list()
+  tail_sequence <- sequence_input$sequence[line]
+  
+  for (l in 1:(stringr::str_count(tail_sequence,"CTTTCTT"))) {
+  extracted_motif <- stringr::str_extract(tail_sequence,".....CTTTCTT.....")
+  extracted_motif_list_per_seq[[l+1]] <- extracted_motif
+  extracted_motif_final_list[[line]] <- do.call(rbind,extracted_motif_list_per_seq)
+  
+  tail_sequence <- mapply(strsplit(as.character(tail_sequence),stringr::str_extract(tail_sequence,as.character(extracted_motif))),FUN=function(x){(as.character(x)[2])})
+  #extracted_motif_final_list[[line]] <- extracted_motif_list_per_seq 
+  }
+  
+  }
+extracted_motif_final_list
+
+motifs_db_CTTTCTT <- do.call(rbind,extracted_motif_final_list)
+motifs_db_CTTTCTT
+
+
+
+motifs_db_CTTTCTT <- data.frame(motifs_db_CTTTCTT)
+motifs_db_CTTTCTT <- subset(motifs_db_CTTTCTT,!is.na(motifs_db_CTTTCTT))
+motifs_db_CTTTCTT$motifs_db_CTTTCTT <- gsub("T","U",motifs_db_CTTTCTT$motifs_db_CTTTCTT)
+dim(motifs_db_CTTTCTT)
+
+#motifs_db_CTTTCTT <- gsub("CTTT","NNNN",motifs_db_CTTTCTT)
+# motifs_db_CTTTCTT$left <- substring(motifs_db_CTTTCTT$motifs_db_CTTTCTT, 1, 10)
+# motifs_db_CTTTCTT$right <- substring(motifs_db_CTTTCTT$motifs_db_CTTTCTT, 16, 26)
+
+ggseqlogo(motifs_db_CTTTCTT$motifs_db_CTTTCTT, method="probability")+
+  theme(aspect.ratio = .125)+
+  annotate('rect', xmin = 5.5, xmax = 12.5, ymin = 0, ymax = 1, alpha = .1, col='black', fill='black')
+
+
+```
+
+
+## AGAAGA flanking motif
+```{r AGAAGA flanking motif}
+
+sequence_input <- UTR3_fasta
+extracted_motif_final_list <- list()
+
+for (line in 1:length(sequence_input$sequence)) {
+  extracted_motif_list_per_seq <- list()
+  tail_sequence <- sequence_input$sequence[line]
+  
+  for (l in 1:(stringr::str_count(tail_sequence,"AGAAGA"))) {
+  extracted_motif <- stringr::str_extract(tail_sequence,".....AGAAGA.....")
+  extracted_motif_list_per_seq[[l+1]] <- extracted_motif
+  extracted_motif_final_list[[line]] <- do.call(rbind,extracted_motif_list_per_seq)
+  
+  tail_sequence <- mapply(strsplit(as.character(tail_sequence),stringr::str_extract(tail_sequence,as.character(extracted_motif))),FUN=function(x){(as.character(x)[2])})
+  #extracted_motif_final_list[[line]] <- extracted_motif_list_per_seq 
+  }
+  
+  }
+# extracted_motif_final_list
+
+motifs_db_AGAAGA <- do.call(rbind,extracted_motif_final_list)
+motifs_db_AGAAGA
+
+
+
+motifs_db_AGAAGA <- data.frame(motifs_db_AGAAGA)
+motifs_db_AGAAGA <- subset(motifs_db_AGAAGA,!is.na(motifs_db_AGAAGA))
+
+dim(motifs_db_AGAAGA)
+
+#motifs_db_AGAAGA <- gsub("CTTT","NNNN",motifs_db_AGAAGA)
+# motifs_db_AGAAGA$left <- substring(motifs_db_AGAAGA$motifs_db_AGAAGA, 1, 10)
+# motifs_db_AGAAGA$right <- substring(motifs_db_AGAAGA$motifs_db_AGAAGA, 17, 27)
+
+
+ggseqlogo(motifs_db_AGAAGA$motifs_db_AGAAGA, method="probability")+
+  theme(aspect.ratio = .125)+
+  annotate('rect', xmin = 5.5, xmax = 11.5, ymin = 0, ymax = 1, alpha = .1, col='black', fill='black')
+
+```
+
+
+
+
+
+
+```{r AGAAGA motifs count}
+#UTR3_fasta$ATTTA <- str_count(UTR3_fasta$sequence,pattern ="ATTTA")
+
+UTR3_fasta$AGAAGA <- str_count(UTR3_fasta$sequence,pattern ="AGAAGA")
+UTR3_fasta$.GAAGA <- str_count(UTR3_fasta$sequence,pattern =".GAAGA")
+UTR3_fasta$AGAAG. <- str_count(UTR3_fasta$sequence,pattern ="AGAAG.")
+UTR3_fasta$AGAA <- str_count(UTR3_fasta$sequence,pattern ="AGAA")
+UTR3_fasta$GAAG <- str_count(UTR3_fasta$sequence,pattern ="GAAG")
+
+
+
+dim(UTR3_fasta[UTR3_fasta$AGAAGA>0,]) # 22095 | 31.18 %
+dim(UTR3_fasta[UTR3_fasta$.GAAGA>0,]) # 38547 | 54.41 %
+dim(UTR3_fasta[UTR3_fasta$AGAAG.>0,]) # 39368 | 55.56 %
+dim(UTR3_fasta[UTR3_fasta$AGAA>0,]) # 57725 | 81.47 %
+dim(UTR3_fasta[UTR3_fasta$GAAG>0,]) # 55180 | 77.88 %
+dim(UTR3_fasta) # 70851
+
+
+UTR3_fasta$.GAAGA <- str_count(UTR3_fasta$sequence,pattern =".GAAGA")
+UTR3_fasta$AGAAG. <- str_count(UTR3_fasta$sequence,pattern ="AGAAG.")
+UTR3_fasta$AGAA <- str_count(UTR3_fasta$sequence,pattern ="AGAA")
+UTR3_fasta$GAAG <- str_count(UTR3_fasta$sequence,pattern ="GAAG")
+
+
+```
+
+
+
+```{r, dist to first AGAAGA}
+UTR3_fasta$sequence_modif <- paste(">",UTR3_fasta$sequence)
+UTR3_fasta$seq_from_start_AGAAGA <- ex_between(UTR3_fasta$sequence_modif, ">", 'AGAAGA', extract=TRUE)
+
+UTR3_fasta$seq_from_start_AGAAGA <- nchar(UTR3_fasta$seq_from_start_AGAAGA)
+
+UTR3_fasta[is.na(UTR3_fasta)]=0
+
+UTR3_fasta$seq_from_start_AGAAGA <- (UTR3_fasta$seq_from_start_AGAAGA / UTR3_fasta$UTR3_length)*100
+
+ggplot(UTR3_fasta[UTR3_fasta$seq_from_start_AGAAGA>0,], aes(x=seq_from_start_AGAAGA))+
+  geom_density()
+
+
+```
+
+
+
+
+```{r, dist to first AUUUA}
+UTR3_fasta$sequence_modif <- paste(">",UTR3_fasta$sequence)
+UTR3_fasta$seq_from_start_ATTTA <- ex_between(UTR3_fasta$sequence_modif, ">", 'ATTTA', extract=TRUE)
+
+UTR3_fasta$seq_from_start_ATTTA <- nchar(UTR3_fasta$seq_from_start_ATTTA)
+
+UTR3_fasta[is.na(UTR3_fasta)]=0
+
+UTR3_fasta$seq_from_start_ATTTA <- (UTR3_fasta$seq_from_start_ATTTA / UTR3_fasta$UTR3_length)*100
+
+ggplot(UTR3_fasta[UTR3_fasta$seq_from_start_ATTTA>0,], aes(x=seq_from_start_ATTTA))+
+  geom_density()
+
+
+```
+
+
+
+```{r, dist to first CTTTCTT}
+UTR3_fasta$sequence_modif <- paste(">",UTR3_fasta$sequence)
+UTR3_fasta$seq_from_start_CTTTCTT <- ex_between(UTR3_fasta$sequence_modif, ">", 'CTTTCTT', extract=TRUE)
+
+UTR3_fasta$seq_from_start_CTTTCTT <- nchar(UTR3_fasta$seq_from_start_CTTTCTT)
+
+UTR3_fasta[is.na(UTR3_fasta)]=0
+
+UTR3_fasta$seq_from_start_CTTTCTT <- (UTR3_fasta$seq_from_start_CTTTCTT / UTR3_fasta$UTR3_length)*100
+
+ggplot(UTR3_fasta[UTR3_fasta$seq_from_start_CTTTCTT>0,], aes(x=seq_from_start_CTTTCTT))+
+  geom_density()
+
+
+```
+
+
+
+```{r, overall distribution ATTTA}
+
+location_ATTTA  <- stri_locate_all_coll(UTR3_fasta$sequence, 'ATTTA',omit_no_match = F,get_length=F )
+
+percentage_change <- function(data, actual) {
+    (data / actual) * 100
+}
+
+location_ATTTA <- mapply(percentage_change, location_ATTTA, UTR3_fasta$UTR3_length)
+location_ATTTA <- do.call(rbind,location_ATTTA)
+location_ATTTA <- data.frame(location_ATTTA)
+location_ATTTA$group <- "ATTTA"
+
+ggplot(location_ATTTA, aes(x=start))+
+  geom_density()+
+  theme(aspect.ratio = 1)+
+  ggtitle("Normalized 'ATTTA' 3'UTR density")
+
+```
+
+
+
+```{r, overall distribution CTTTCTT}
+
+location_CTTTCTT  <- stri_locate_all_coll(UTR3_fasta$sequence, 'CTTTCTT',omit_no_match = F,get_length=F )
+
+percentage_change <- function(data, actual) {
+    (data / actual) * 100
+}
+
+location_CTTTCTT <- mapply(percentage_change, location_CTTTCTT, UTR3_fasta$UTR3_length)
+location_CTTTCTT <- do.call(rbind,location_CTTTCTT)
+location_CTTTCTT <- data.frame(location_CTTTCTT)
+location_CTTTCTT$group <- "CTTTCTT"
+
+ggplot(location_CTTTCTT, aes(x=start))+
+  geom_density()+
+  theme_minimal()+
+  theme(aspect.ratio = 1)+
+  ggtitle("Normalized 'CTTTCTT' 3'UTR density")
+  
+
+```
+
+
+
+```{r, overall distribution AGAAGA}
+
+location_AGAAGA  <- stri_locate_all_coll(UTR3_fasta$sequence, 'AGAAGA',omit_no_match = F,get_length=F )
+
+percentage_change <- function(data, actual) {
+    (data / actual) * 100
+}
+
+location_AGAAGA <- mapply(percentage_change, location_AGAAGA, UTR3_fasta$UTR3_length)
+location_AGAAGA <- do.call(rbind,location_AGAAGA)
+location_AGAAGA <- data.frame(location_AGAAGA)
+location_AGAAGA$group <- "AGAAGA"
+
+ggplot(location_AGAAGA, aes(x=start))+
+  geom_density()+
+  theme_minimal()+
+  theme(aspect.ratio = 1)+
+  ggtitle("Normalized 'AGAAGA' 3'UTR density")
+  
+
+```
+
+
+
+```{r, overall distribution CTCAGGT}
+
+location_CTCAGGT  <- stri_locate_all_coll(UTR3_fasta$sequence, 'CTCAGGT',omit_no_match = F,get_length=F )
+
+percentage_change <- function(data, actual) {
+    (data / actual) * 100
+}
+
+location_CTCAGGT <- mapply(percentage_change, location_CTCAGGT, UTR3_fasta$UTR3_length)
+location_CTCAGGT <- do.call(rbind,location_CTCAGGT)
+location_CTCAGGT <- data.frame(location_CTCAGGT)
+location_CTCAGGT$group <- "CTCAGGT"
+
+ggplot(location_CTCAGGT, aes(x=start))+
+  geom_density()+
+  theme_minimal()+
+  theme(aspect.ratio = 1)+
+  ggtitle("Normalized 'CTCAGGT' 3'UTR density")
+  
+
+```
+
+
+
+```{r, density comparison}
+Motif_location <- data.frame(rbind(location_ATTTA,location_CTTTCTT,location_CTCAGGT,location_AGAAGA))
+
+ggplot(Motif_location, aes(x=start, color=group))+
+  geom_density()+
+  # geom_density(data = location_ATTTA, color="purple")+
+  # geom_density(data = location_CTTTCTT, color="red")+
+  # geom_density(data = location_CTCAGGT, color="orange")+
+  # geom_density(data = location_AGAAGA, color="blue")+
+  theme_minimal()+
+  theme(aspect.ratio = 1)+
+  ggtitle("Normalized motif 3'UTR density distribution")
+  
+```
+
+
+```{r distance between}
+
+
+
+
+UTR3_fasta$dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$seq_in_between_AGAAGA),", "),FUN=function(x){nchar(x)})
+
+UTR3_fasta$dist_between_AGAAGA <- gsub("c\\(","",UTR3_fasta$dist_between_AGAAGA)
+UTR3_fasta$dist_between_AGAAGA <- gsub("\\)","",UTR3_fasta$dist_between_AGAAGA)
+
+UTR3_fasta$dist_between_AGAAGA <- gsub("NA",0, UTR3_fasta$dist_between_AGAAGA)
+
+UTR3_fasta$max_dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$dist_between_AGAAGA), ","), FUN=function(x){max(as.numeric(x))})
+UTR3_fasta$min_dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$dist_between_AGAAGA), ","), FUN=function(x){min(as.numeric(x))})
+
+UTR3_fasta$max_dist_between_AGAAGA <- gsub("integer\\(0",0,UTR3_fasta$max_dist_between_AGAAGA)
+UTR3_fasta$min_dist_between_AGAAGA <- gsub("integer\\(0",0,UTR3_fasta$min_dist_between_AGAAGA)
+
+AGAAGA_dist_split <- strsplit(UTR3_fasta$dist_between_AGAAGA, split = ",", fixed = TRUE)
+
+
+UTR3_fasta$median_dist_between_AGAAGA <- sapply(AGAAGA_dist_split, function(x) median(as.numeric(x)))
+UTR3_fasta$mean_dist_between_AGAAGA <- sapply(AGAAGA_dist_split, function(x) mean(as.numeric(x)))
+
+
+
+ggplot(UTR3_fasta,aes(x=log10(UTR3_fasta$mean_dist_between_AGAAGA)))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(UTR3_fasta$mean_dist_between_AREs)),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(UTR3_fasta$median_dist_between_AGAAGA)))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(UTR3_fasta$median_dist_between_AREs)),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$max_dist_between_AGAAGA))))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$max_dist_between_AREs))),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$min_dist_between_AGAAGA))))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$min_dist_between_AREs))),color="red")
+
+
+ggplot(UTR3_fasta,aes(x=(as.numeric(UTR3_fasta$AGAAGA)),y=(as.numeric(UTR3_fasta$ATTTA))))+
+  geom_point()+
+  geom_smooth()+
+  scale_x_continuous(limits = c(0,110))+
+  scale_y_continuous(limits = c(0,110))
+
+UTR3_fasta_AGE <- UTR3_fasta
+UTR3_fasta_AGE <- subset(UTR3_fasta_AGE, UTR3_fasta_AGE$AGAAGA>0 |UTR3_fasta_AGE$AGAAG.>0|UTR3_fasta_AGE$.GAAGA>0)
+dim(UTR3_fasta_AGE)
+dim(UTR3_fasta)
+
+UTR3_fasta_AGE$sequence <- NULL
+UTR3_fasta_AGE$gene.id <- NULL
+UTR3_fasta_AGE$seq_in_between_AREs <- NULL
+UTR3_fasta_AGE$seq_in_between_AGAAGA <- NULL
+
+write.table(UTR3_fasta_AGE,"AGE_motifs_occurence_3UTR_human.csv",sep = ";", dec = ",",row.names = F)
+
+dim(subset(UTR3_fasta_AGE, UTR3_fasta_AGE$AGAAGA>0)) # 14452
+dim(UTR3_fasta) #41580
+
+14452/41580*100 # 34.75709% of all transcriptome has >0 AGE motifs : ) 
+
+```
+
+
+
+```{r AGAAGA motifs count}
+UTR3_fasta$CTCAGGT <- str_count(UTR3_fasta$sequence,pattern ="CTCAGGT")
+
+UTR3_fasta <- subset(UTR3_fasta,UTR3_fasta$CTCAGGT>0)
+
+UTR3_fasta$seq_in_between_AGAAGA <- rm_between(UTR3_fasta$sequence, 'AGAAGA', 'AGAAGA', extract=TRUE)
+
+
+
+UTR3_fasta$dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$seq_in_between_AGAAGA),", "),FUN=function(x){nchar(x)})
+
+UTR3_fasta$dist_between_AGAAGA <- gsub("c\\(","",UTR3_fasta$dist_between_AGAAGA)
+UTR3_fasta$dist_between_AGAAGA <- gsub("\\)","",UTR3_fasta$dist_between_AGAAGA)
+
+UTR3_fasta$dist_between_AGAAGA <- gsub("NA",0, UTR3_fasta$dist_between_AGAAGA)
+
+UTR3_fasta$max_dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$dist_between_AGAAGA), ", "), FUN=function(x){max(x)})
+UTR3_fasta$min_dist_between_AGAAGA <- mapply(strsplit(as.character(UTR3_fasta$dist_between_AGAAGA), ", "), FUN=function(x){min(x)})
+
+UTR3_fasta$max_dist_between_AGAAGA <- gsub("integer\\(0",0,UTR3_fasta$max_dist_between_AGAAGA)
+UTR3_fasta$min_dist_between_AGAAGA <- gsub("integer\\(0",0,UTR3_fasta$min_dist_between_AGAAGA)
+
+AGAAGA_dist_split <- strsplit(UTR3_fasta$dist_between_AGAAGA, split = ", ", fixed = TRUE)
+
+
+UTR3_fasta$median_dist_between_AGAAGA <- sapply(AGAAGA_dist_split, function(x) median(as.numeric(x)))
+UTR3_fasta$mean_dist_between_AGAAGA <- sapply(AGAAGA_dist_split, function(x) mean(as.numeric(x)))
+
+
+
+ggplot(UTR3_fasta,aes(x=log10(UTR3_fasta$mean_dist_between_AGAAGA)))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(UTR3_fasta$mean_dist_between_AREs)),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(UTR3_fasta$median_dist_between_AGAAGA)))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(UTR3_fasta$median_dist_between_AREs)),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$max_dist_between_AGAAGA))))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$max_dist_between_AREs))),color="red")
+
+ggplot(UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$min_dist_between_AGAAGA))))+
+  geom_density()+
+  geom_density(data=UTR3_fasta,aes(x=log10(as.numeric(UTR3_fasta$min_dist_between_AREs))),color="red")
+
+
+write.table(Gene_wise_3UTR_list,"3UTR_motifs_list_from_sequences.csv",sep = ";", dec = ",",row.names = F)
+
+```
+
+```{r new bits to isolate potential target}
+
+UTR3_fasta$CTTTCTT <- str_count(UTR3_fasta$sequence,pattern ="CTTTCTT")
+UTR3_fasta$CTTT <- str_count(UTR3_fasta$sequence,pattern ="CTTT")
+UTR3_fasta$AGAAGA <- str_count(UTR3_fasta$sequence,pattern ="AGAAGA")
+UTR3_fasta$TCTTCT <- str_count(UTR3_fasta$sequence,pattern ="TCTTCT")
+UTR3_fasta$AGGAGA <- str_count(UTR3_fasta$sequence,pattern ="AGGAGA")
+UTR3_fasta$CTCAGGT <- str_count(UTR3_fasta$sequence,pattern ="CTCAGGT")
+UTR3_fasta$ATTTA <- str_count(UTR3_fasta$sequence,pattern ="ATTTA")
+
+UTR3_fasta <- subset(UTR3_fasta,
+       UTR3_fasta$CTTTCTT>0 |
+       UTR3_fasta$CTTT>0 |
+       UTR3_fasta$AGAAGA>0 |
+       UTR3_fasta$AGGAGA>0 |
+       UTR3_fasta$CTCAGGT>0 |
+       UTR3_fasta$ATTTA>0 )
+
+#write.table(UTR3_fasta,"/home/ben/Analysis/RF_human/3UTR_motifs_for_selection_110321.csv",sep = ";", dec = ",",row.names = F)
+
+
+ggplot(UTR3_fasta,aes(x=AGAAGA,y=TCTTCT))+
+  geom_point()+
+  scale_x_continuous(limits = c(0,30))+
+  scale_y_continuous(limits = c(0,30))+
+  theme(aspect.ratio = 1)
+
+
+
+ggplot(UTR3_fasta,aes(x=UTR3_length,y=AGAAGA))+
+  geom_point()+
+  #scale_x_continuous(limits = c(0,30))+
+  scale_y_continuous(limits = c(0,30))+
+  theme(aspect.ratio = 1)
+
+ggplot(UTR3_fasta,aes(x=UTR3_length,y=ATTTA))+
+  geom_point()+
+  #scale_x_continuous(limits = c(0,30))+
+  #scale_y_continuous(limits = c(0,30))+
+  theme(aspect.ratio = 1)
+
+
+ggplot(UTR3_fasta,aes(x=AGAAGA,y=ATTTA))+
+  geom_point()+
+  #scale_x_continuous(limits = c(0,30))+
+  #scale_y_continuous(limits = c(0,30))+
+  theme(aspect.ratio = 1)
+
+
+```
+
