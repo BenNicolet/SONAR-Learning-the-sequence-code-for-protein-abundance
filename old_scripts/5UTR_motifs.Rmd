@@ -1,0 +1,586 @@
+---
+title: "5'UTR characteristics"
+author: "Benoit Nicolet"
+date: "19/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(dplyr)
+library(seqinr)
+library(qdapRegex)
+library(stringr)
+library(Biostrings)
+library(biomaRt)
+
+#BiocManager::install("biomaRt")
+
+#library(motifmatchr)
+
+knitr::opts_knit$set("/home/ben/Analysis/")
+setwd("/home/ben/Analysis/")
+
+```
+
+
+```{r biomart?}
+
+ensembl = useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+#All_filters <- listFilters(ensembl)
+#View(All_filters)
+#attributes_ens <- listAttributes(ensembl)
+#View(attributes_ens)
+
+IDs_genenames_coding <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcript_id", "external_gene_name","gene_biotype"), mart = ensembl, filters = "with_cUTR5", values = TRUE)
+
+```
+
+## Formatting the fasta from ensembl
+```{r Formatting the fasta from ensembl}
+
+# UTR5_fasta <- readtext::readtext("/Users/stinky/Desktop/Sequences_info/5UTR_mart_export.txt")
+# glimpse(UTR5_fasta)
+# 
+# UTR5_fasta <- gsub("\\\n","",UTR5_fasta) # removing the newlines
+# 
+# UTR5_fasta <- gsub(">","\\\n>",UTR5_fasta) ## replace > by \n>
+# 
+# write(UTR5_fasta,"/Users/stinky/Desktop/Sequences_info/5UTR_ensembl_mart_export_nobreaks.txt")
+# 
+
+
+```
+
+
+
+```{r importing the formated Fasta file and processing}
+## re-importing ##
+#UTR5_fasta <- read.delim("/Users/stinky/Desktop/Sequences_info/5UTR_ensembl_mart_export_nobreaks.txt",sep="\t",header = F)
+UTR5_fasta <- read.delim("5UTR_ensembl_mart_export_nobreaks.txt",sep="\t",header = F)
+
+
+UTR5_fasta$gene.id <- mapply(strsplit(as.character(UTR5_fasta$V1),"\\|"),FUN=function(x){(as.character(x)[1])})
+UTR5_fasta$tx.id <- mapply(strsplit(as.character(UTR5_fasta$V1),"\\|"),FUN=function(x){(as.character(x)[2])})
+
+UTR5_fasta$gene.id <- gsub(">","",UTR5_fasta$gene.id)
+
+UTR5_fasta$sequence <- UTR5_fasta$tx.id
+UTR5_fasta$sequence <- gsub('^...............','',UTR5_fasta$sequence)
+
+UTR5_fasta$tx.id <- gsub("A","",UTR5_fasta$tx.id)
+UTR5_fasta$tx.id <- gsub("T","",UTR5_fasta$tx.id)
+UTR5_fasta$tx.id <- gsub("G","",UTR5_fasta$tx.id)
+UTR5_fasta$tx.id <- gsub("C","",UTR5_fasta$tx.id)
+UTR5_fasta$tx.id <- gsub("ENS","ENST",UTR5_fasta$tx.id)
+
+UTR5_fasta$V1 <- NULL
+
+
+UTR5_fasta$UTR5_length <- mapply(strsplit(as.character(UTR5_fasta$sequence),","),FUN=function(x){nchar(x)})
+
+dim(UTR5_fasta)
+UTR5_fasta <- merge(UTR5_fasta, IDs_genenames_coding, by.x="tx.id",by.y="ensembl_transcript_id",all.x=T)
+dim(UTR5_fasta)
+
+## oooh yeah : )
+
+UTR5_fasta$ensembl_gene_id <- NULL
+
+
+UTR5_fasta <- UTR5_fasta[!UTR5_fasta$sequence=="Sequence unavailable",]
+
+
+```
+
+
+## Importing ATTRACT DB
+```{r ATtract DB}
+## ATTRACT db downloaded on June 11th 2020 from https://attract.cnic.es/index
+ATTRACT <- read.delim("ATtRACT/ATtRACT_db.txt")
+ATTRACT <- subset(ATTRACT,ATTRACT$Organism=="Homo_sapiens")
+ATTRACT <- subset(ATTRACT,ATTRACT$Mutated=="no")
+dim(ATTRACT) # 3178 motifs
+
+## Lets filter per score 
+# ATTRACT$Score <- gsub("\\*","",ATTRACT$Score)
+# ATTRACT$Score <- as.numeric(ATTRACT$Score)
+# ATTRACT <- subset(ATTRACT,ATTRACT$Score >=0.1)
+
+## converting Us in Ts
+ATTRACT$Motif <- gsub("U","T",ATTRACT$Motif)
+
+table(duplicated(ATTRACT$Motif))
+ATTRACT <- ATTRACT[!duplicated(ATTRACT$Motif),] ## Removing duplicates motifs
+dim(ATTRACT) # 2271 motifs
+
+```
+
+
+## Counting other motifs
+```{r counting other motifs}
+datalist = list()
+#length(ATTRACT$Motif)
+
+
+start_time <- Sys.time()
+for (i in 1:length(ATTRACT$Motif)) {
+    dat <- as.vector(str_count(UTR5_fasta$sequence, pattern=as.character(ATTRACT$Motif[i])))
+    datalist[[i]] <- dat # add it to your list
+    ## This next part is just to return the progress (per 10% increase)
+    k <- round((as.numeric(i-1)/length(ATTRACT$Motif))*100,-1)
+    if (round((as.numeric(i)/length(ATTRACT$Motif))*100,-1)>k)
+    {print((paste0(round((as.numeric(i)/length(ATTRACT$Motif))*100,-1),"%")))}
+    else {}
+    flush.console()
+    }
+
+end_time <- Sys.time()
+end_time - start_time
+
+
+UTR5_database <- do.call(cbind,datalist)
+
+colnames(UTR5_database) <- paste0(ATTRACT$Motif)
+rownames(UTR5_database) <- UTR5_fasta$tx.id
+dim(UTR5_database)
+dim(UTR5_fasta)
+
+
+UTR5_database <- UTR5_database[,order(colnames(UTR5_database))]
+dim(UTR5_database[, colSums(UTR5_database) !=0 ]) # 2235 non-empty columns
+UTR5_database <- UTR5_database[, colSums(UTR5_database) != 0]
+
+UTR5_database_export <- data.frame(UTR5_database)
+
+UTR5_database_export$external_gene_name <- UTR5_fasta$external_gene_name
+UTR5_database_export$tx.id <- UTR5_fasta$tx.id
+
+write.table(UTR5_database_export,"RBP_motifs_in_human_transcriptome_UTR5_hg38_from_ATtRACT_db.csv", sep=";",dec=",", row.names =F, quote = F)
+
+
+UTR5_fasta <- cbind(UTR5_fasta,UTR5_database)
+#glimpse(UTR5_fasta[UTR5_fasta$external_gene_name=="IFNG",])
+
+```
+
+
+## Counting ATTTA 's
+```{r Counting ATTTAs}
+
+#UTR5_fasta$ARE_ATTTA_count <- string.counter(strings=UTR5_fasta$sequence, pattern="ATTTA")
+#UTR5_fasta$ARE_ATTTA_count_homeade_counter <- string.counter(strings=UTR5_fasta$sequence, pattern="ATTTA")
+
+UTR5_fasta$ARE_1xATTTA_count <- str_count(UTR5_fasta$sequence,pattern ="ATTTA")
+UTR5_fasta$ARE_2_count <- str_count(UTR5_fasta$sequence, "ATTTATTTA")
+UTR5_fasta$ARE_3_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTA")
+UTR5_fasta$ARE_4_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTA")
+UTR5_fasta$ARE_5_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTA")
+UTR5_fasta$ARE_6_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTATTTA")
+UTR5_fasta$ARE_7_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTA")
+UTR5_fasta$ARE_8_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTA")
+UTR5_fasta$ARE_9_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTATTTA")
+UTR5_fasta$ARE_10_count <- str_count(UTR5_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTA")
+
+
+## Correcting for double counting : 
+
+UTR5_fasta$ARE_9_count <- UTR5_fasta$ARE_9_count- 
+  (UTR5_fasta$ARE_10_count*1)
+
+UTR5_fasta$ARE_8_count <- UTR5_fasta$ARE_8_count- 
+  ((UTR5_fasta$ARE_10_count*1)+
+  (UTR5_fasta$ARE_9_count*1))
+
+UTR5_fasta$ARE_7_count <- UTR5_fasta$ARE_7_count- 
+  ((UTR5_fasta$ARE_10_count*1)+
+  (UTR5_fasta$ARE_9_count*1)+
+  (UTR5_fasta$ARE_8_count*1))
+
+UTR5_fasta$ARE_6_count <- UTR5_fasta$ARE_6_count- 
+  ((UTR5_fasta$ARE_10_count*1)+
+  (UTR5_fasta$ARE_9_count*1)+
+  (UTR5_fasta$ARE_8_count*1)+
+  (UTR5_fasta$ARE_7_count*1))
+
+UTR5_fasta$ARE_5_count <- UTR5_fasta$ARE_5_count- 
+  ((UTR5_fasta$ARE_10_count*1)+
+  (UTR5_fasta$ARE_9_count*1)+
+  (UTR5_fasta$ARE_8_count*1)+
+  (UTR5_fasta$ARE_7_count*1)+
+  (UTR5_fasta$ARE_6_count*1))
+
+UTR5_fasta$ARE_4_count <- UTR5_fasta$ARE_4_count- 
+  ((UTR5_fasta$ARE_10_count*2)+
+  (UTR5_fasta$ARE_9_count*2)+
+  (UTR5_fasta$ARE_8_count*1)+
+  (UTR5_fasta$ARE_7_count*1)+
+  (UTR5_fasta$ARE_6_count*1)+
+  (UTR5_fasta$ARE_5_count*1))
+
+UTR5_fasta$ARE_3_count <- UTR5_fasta$ARE_3_count- 
+  ((UTR5_fasta$ARE_10_count*2)+
+  (UTR5_fasta$ARE_9_count*2)+
+  (UTR5_fasta$ARE_8_count*2)+
+  (UTR5_fasta$ARE_7_count*2)+
+  (UTR5_fasta$ARE_6_count*1)+
+  (UTR5_fasta$ARE_5_count*1)+
+  (UTR5_fasta$ARE_4_count*1))
+
+
+UTR5_fasta$ARE_2_count <- UTR5_fasta$ARE_2_count- 
+  ((UTR5_fasta$ARE_10_count*3)+
+  (UTR5_fasta$ARE_9_count*3)+
+  (UTR5_fasta$ARE_8_count*3)+
+  (UTR5_fasta$ARE_7_count*2)+
+  (UTR5_fasta$ARE_6_count*2)+
+  (UTR5_fasta$ARE_5_count*2)+
+  (UTR5_fasta$ARE_4_count*1)+
+  (UTR5_fasta$ARE_3_count*1))
+
+UTR5_fasta$ARE_1xATTTA_count <- UTR5_fasta$ARE_1xATTTA_count- 
+  ((UTR5_fasta$ARE_10_count*5)+
+  (UTR5_fasta$ARE_9_count*5)+
+  (UTR5_fasta$ARE_8_count*4)+
+  (UTR5_fasta$ARE_7_count*4)+
+  (UTR5_fasta$ARE_6_count*3)+
+  (UTR5_fasta$ARE_5_count*3)+
+  (UTR5_fasta$ARE_4_count*2)+
+  (UTR5_fasta$ARE_3_count*2)+
+  (UTR5_fasta$ARE_2_count*1))
+
+
+
+## Now counting the counts:
+
+UTR5_fasta$ARE_full_count <-
+  (UTR5_fasta$ARE_10_count*10)+
+  (UTR5_fasta$ARE_9_count*9)+
+  (UTR5_fasta$ARE_8_count*8)+
+  (UTR5_fasta$ARE_7_count*7)+
+  (UTR5_fasta$ARE_6_count*6)+
+  (UTR5_fasta$ARE_5_count*5)+
+  (UTR5_fasta$ARE_4_count*4)+
+  (UTR5_fasta$ARE_3_count*3)+
+  (UTR5_fasta$ARE_2_count*2)+
+  UTR5_fasta$ARE_1xATTTA_count
+
+
+
+dim(UTR5_fasta) # 43,028
+dim(UTR5_fasta[UTR5_fasta$ARE_full_count>0,]) # 24,720 sequences with at least 1 "ATTTA" ARE(s) 
+
+#plot(UTR5_fasta$ARE_1xATTTA_count, UTR5_fasta$ARE_full_count)
+UTR5_fasta$ARE_10_count <- NULL
+UTR5_fasta$ARE_9_count <- NULL
+UTR5_fasta$ARE_8_count <- NULL
+UTR5_fasta$ARE_7_count <- NULL
+UTR5_fasta$ARE_6_count <- NULL
+UTR5_fasta$ARE_5_count <- NULL
+UTR5_fasta$ARE_4_count <- NULL
+UTR5_fasta$ARE_3_count <- NULL
+UTR5_fasta$ARE_2_count <- NULL
+UTR5_fasta$ARE_1xATTTA_count <- NULL
+
+```
+
+
+## Counting other motifs
+```{r counting other motifs}
+# ## poly-A tail signal AAUAAA
+# UTR5_fasta$poly_A_signal_AATAAA <- str_count(UTR5_fasta$sequence,pattern ="AATAAA")
+# 
+# ## longer ARE AUUUUUA
+# UTR5_fasta$ARE_long_ATTTTTA <- str_count(UTR5_fasta$sequence,pattern ="ATTTTTA")
+# 
+# ## 
+# UTR5_fasta$AUF1 <- str_count(UTR5_fasta$sequence,pattern = c("TTAGA","AGTTT","GTTTG"))
+# 
+# ## 
+# UTR5_fasta$BOLL <- str_count(UTR5_fasta$sequence,pattern = c("GTTGTGTT",	"GTTTTTTT",	"GTTTTGTT",	"GTTGTTTT"))
+# 
+# ## 
+# UTR5_fasta$CARHSP1_ <- str_count(UTR5_fasta$sequence,pattern =c("TTGCCTTGTCCCG","GCCATGATCATG"))
+# 
+# ## 
+# UTR5_fasta$CELF1_GTGT.TGTGT <- str_count(UTR5_fasta$sequence,pattern ="GTGT.TGTGT")
+# 
+# ## 
+# UTR5_fasta$CELF3<- str_count(UTR5_fasta$sequence,pattern = c("GGTGTGGGTGT","GGTGTTTGTGT"))
+# 
+# ##  
+# UTR5_fasta$CELF4_.GTGT.GTG. <- str_count(UTR5_fasta$sequence,pattern =".GTGT.GTG.")
+# 
+# ##CNOT4
+# UTR5_fasta$CNOT4_GACAGA <- str_count(UTR5_fasta$sequence,pattern ="GACAGA")
+# 
+# ## 
+# UTR5_fasta$CSTF2_GGCGTAGCGT.. <- str_count(UTR5_fasta$sequence,pattern ="GGCGTAGCGT..")
+# 
+# ## 
+# UTR5_fasta$CSTF2T_CGTAGCG <- str_count(UTR5_fasta$sequence,pattern ="CGTAGCG")
+# 
+# ## 
+# UTR5_fasta$CU_rich_CTCTCTCT <- str_count(UTR5_fasta$sequence,pattern ="CTCTCTCT")
+# 
+# ## 
+# UTR5_fasta$DAZ1_TG.G.GCGTTTCCG <- str_count(UTR5_fasta$sequence,pattern ="TG.G.GCGTTTCCG")
+# 
+# ## 
+# UTR5_fasta$DAZ3_4_L_TG.GCGCGTTTCCG <- str_count(UTR5_fasta$sequence,pattern ="TG.GCGCGTTTCCG")
+# 
+# ## 
+# UTR5_fasta$DAZAP1_TTAGGTTAGG <- str_count(UTR5_fasta$sequence,pattern ="TTAGGTTAGG")
+# 
+# ## 
+# UTR5_fasta$ELAVL1 <- str_count(UTR5_fasta$sequence,pattern =c("TTTTT","TTT.T..TTT"))
+# 
+# ## 
+# UTR5_fasta$ELAVL3_.TTTTT <- str_count(UTR5_fasta$sequence,pattern =".TTTTT")
+# 
+# ## 
+# UTR5_fasta$ELAVL4 <- str_count(UTR5_fasta$sequence,pattern =c("TTTT.TTTT.",".TTT..TTT."))
+# 
+# ## 
+# UTR5_fasta$ESRP1_GGTGTGGTG. <- str_count(UTR5_fasta$sequence,pattern ="GGTGTGGTG.")
+# 
+# ## 
+# UTR5_fasta$FXR1 <- str_count(UTR5_fasta$sequence,pattern =c("ATGACA",	"ACGACA",	"ATGACG"))
+# 
+# ## 
+# UTR5_fasta$FXR2 <- str_count(UTR5_fasta$sequence,pattern =c("GACGGG",	"GACAAA"))
+# 
+# ## 
+# UTR5_fasta$GU_rich_GTGTGTGT <- str_count(UTR5_fasta$sequence,pattern ="GTGTGTGT")
+# 
+# ## 
+# UTR5_fasta$HEXIM1 <- str_count(UTR5_fasta$sequence,pattern = c("CGACGGG","CGACGGT"))
+# 
+# ## 
+# UTR5_fasta$HEXIM2 <- str_count(UTR5_fasta$sequence,pattern = c("GGCGACGGT",	"GGCGACGGG"))
+# 
+# ## 
+# UTR5_fasta$HNRNPA_family <- str_count(UTR5_fasta$sequence,pattern =c("TAGGTTAGGG.",	".TAGGTTTAG..",	"GGTTAGGG"))
+# 
+# ## 
+# UTR5_fasta$HNRNPC <- str_count(UTR5_fasta$sequence,pattern = c("TTTTTGG.GG", "TTTTT.GGG"))
+# 
+# ## 
+# UTR5_fasta$HNRNPL <- str_count(UTR5_fasta$sequence,pattern =c("ACA..ACA..","ACATACA"))
+# 
+# ## 
+# UTR5_fasta$HNRNPLL1 <- str_count(UTR5_fasta$sequence,pattern ="GCAT.CA.CC")
+# 
+# ## 
+# UTR5_fasta$IGF2BP1 <- str_count(UTR5_fasta$sequence,pattern =c("CAG.TACA","CAG.ATCA","CAG.AACA","CAG.TTCA"))
+# 
+# ## 
+# UTR5_fasta$ILF3_NF90_TTTTTGAGA <- str_count(UTR5_fasta$sequence,pattern ="TTTTTGAGA")
+# 
+# ## 
+# UTR5_fasta$KHDRBS1 <- str_count(UTR5_fasta$sequence,pattern =c("TAATAGT","TAATAGA","TAATATT","TAATATA"))
+# 
+# ## 
+# UTR5_fasta$KHDRBS2 <- str_count(UTR5_fasta$sequence,pattern ="TAAACAATAA")
+# 
+# ## 
+# UTR5_fasta$KHDRBS3 <- str_count(UTR5_fasta$sequence,pattern = c("TAAA.......TAA.", "TAAT.......TAA.", "TTAA.......TAA.", "TTAT.......TAA."))
+# 
+# ## 
+# UTR5_fasta$LARP6 <- str_count(UTR5_fasta$sequence,pattern =c("GTGTCTGC.....GAAGTC.", "GT.TTGGC.....TGAGC"))
+# 
+# ## 
+# UTR5_fasta$LARP7 <- str_count(UTR5_fasta$sequence,pattern ="TCGTGATG")
+# 
+# ## 
+# UTR5_fasta$MCM3AP <- str_count(UTR5_fasta$sequence,pattern ="GCCAGTGCG")
+# 
+# ## 
+# UTR5_fasta$MEX3B <- str_count(UTR5_fasta$sequence,pattern =c("TAGAGTTTAT","TATAGTTTAT"))
+# 
+# ## 
+# UTR5_fasta$MEX3C <- str_count(UTR5_fasta$sequence,pattern =c("AGAGT.TAT","AGAGT.TAG"))
+# 
+# ## 
+# UTR5_fasta$MEX3D <- str_count(UTR5_fasta$sequence,pattern =c("T.TGTTTAT.","T.TATTTAT."))
+# 
+# ## 
+# UTR5_fasta$MKRN1 <- str_count(UTR5_fasta$sequence,pattern ="GTAAA.TGTAG")
+# 
+# ## 
+# UTR5_fasta$MSI1 <- str_count(UTR5_fasta$sequence,pattern =".TAGT.GTAG.")
+# 
+# ## 
+# UTR5_fasta$MSI2 <- str_count(UTR5_fasta$sequence,pattern ="GTAGT..GTAG.")
+# 
+# ## 
+# UTR5_fasta$NOVA2 <- str_count(UTR5_fasta$sequence,pattern =c("TCAT.CAT","TCAT.CAC"))
+# 
+# ## 
+# UTR5_fasta$PABPC5 <- str_count(UTR5_fasta$sequence,pattern =c("TA.AAA.TT","TA.AAATTACT"))
+# 
+# ## 
+# UTR5_fasta$PCBP1 <- str_count(UTR5_fasta$sequence,pattern =".CCTT..CCTT")
+# 
+# ## 
+# UTR5_fasta$PUM1 <- str_count(UTR5_fasta$sequence,pattern ="TGTAAATAG")
+# 
+# ## 
+# UTR5_fasta$PUM2 <- str_count(UTR5_fasta$sequence,pattern ="TGTA.ATA")
+# 
+# ## 
+# UTR5_fasta$QKI<- str_count(UTR5_fasta$sequence,pattern = c("TACTAACAAT","TACTAACATT","TACTAACATA","TACTAACAAA"))
+# 
+# ## 
+# UTR5_fasta$RALY_1<- str_count(UTR5_fasta$sequence,pattern = c("GGGTCTTATTTTTAA","TTTTTT"))
+# 
+# ## 
+# UTR5_fasta$RBFOX1_3 <- str_count(UTR5_fasta$sequence,pattern =c("GTTGCATG.G","TTTGCATG.G"))
+# 
+# ## 
+# UTR5_fasta$RBM14 <- str_count(UTR5_fasta$sequence,pattern =c("GTTGCGTCG",".G.TGGGTCG",".G.TGCGTCG"))
+# 
+# ## 
+# UTR5_fasta$RBM24 <- str_count(UTR5_fasta$sequence,pattern ="GTGTG.GTGTG")
+# 
+# ## 
+# UTR5_fasta$RBM28 <- str_count(UTR5_fasta$sequence,pattern ="G.GGCCGAGCGGTGG")
+# 
+# ## 
+# UTR5_fasta$RBM38 <- str_count(UTR5_fasta$sequence,pattern ="TGGTGTGTGT")
+# 
+# ## 
+# UTR5_fasta$RBM4_4B <- str_count(UTR5_fasta$sequence,pattern =c(".GTTGCGCGGG",".GTTGCGCGAG"))
+# 
+# ## 
+# UTR5_fasta$RBM42 <- str_count(UTR5_fasta$sequence,pattern ="GGAACTAAG")
+# 
+# ## 
+# UTR5_fasta$RBM46 <- str_count(UTR5_fasta$sequence,pattern ="TGATT")
+# 
+# ## 
+# UTR5_fasta$RBM6 <- str_count(UTR5_fasta$sequence,pattern ="TGCGCTCCT.GC.")
+# 
+# ## 
+# UTR5_fasta$RBMS1_2_3 <- str_count(UTR5_fasta$sequence,pattern =c("TGTATAA.G","TGCATAA.G","TTATAATCAA."))
+# 
+# ## 
+# UTR5_fasta$RBMY1 <- str_count(UTR5_fasta$sequence,pattern =c(".GC.TCG.GC.","GCTT.GTGC"))
+# 
+# ## 
+# UTR5_fasta$RBMY1I_1J <- str_count(UTR5_fasta$sequence,pattern ="G.CCTCAAGG")
+# 
+# ##  
+# UTR5_fasta$RBPMS <- str_count(UTR5_fasta$sequence,pattern ="AGGCAC")
+# 
+# ## 
+# UTR5_fasta$RBPMS2 <- str_count(UTR5_fasta$sequence,pattern =c("GCACA","TCACA"))
+# 
+# ## 
+# UTR5_fasta$RNPC3 <- str_count(UTR5_fasta$sequence,pattern ="GGG..TAC.GGGT")
+# 
+# ## 
+# UTR5_fasta$RC3h1_2_Roquin1_2 <- str_count(UTR5_fasta$sequence,pattern ="CGTT.TAG")
+# 
+# ## 
+# UTR5_fasta$SART3 <- str_count(UTR5_fasta$sequence,pattern ="GTTAGC")
+# 
+# ## 
+# UTR5_fasta$SNRNP70 <- str_count(UTR5_fasta$sequence,pattern =c("G.TCA.G.TG","G.TCA.G.GG"))
+# 
+# ## 
+# UTR5_fasta$SNRPA_B2 <- str_count(UTR5_fasta$sequence,pattern ="..GCAC.")
+# 
+# ## 
+# UTR5_fasta$TARDBP <- str_count(UTR5_fasta$sequence,pattern ="GTGTG..TG.")
+# 
+# ## 
+# UTR5_fasta$THUMPD1 <- str_count(UTR5_fasta$sequence,pattern ="TTCGTGGCTTG")
+# 
+# ## 
+# UTR5_fasta$TIA1 <- str_count(UTR5_fasta$sequence,pattern ="TTTTTACTCC")
+# 
+# ## 
+# UTR5_fasta$U_rich <- str_count(UTR5_fasta$sequence,pattern ="TTTTT")
+# 
+# ## 
+# UTR5_fasta$YBX1 <- str_count(UTR5_fasta$sequence,pattern =c("CCA.G.CATCG","CCA.A.CATCG","CAACCACAA"))
+# 
+# ## 
+# UTR5_fasta$YBX2_3 <- str_count(UTR5_fasta$sequence,pattern =c("TAACATCA","TAACATCG","TAACATCT"))
+# 
+# ## 
+# UTR5_fasta$ZC3H10 <- str_count(UTR5_fasta$sequence,pattern ="GCGC..GCG")
+# 
+# ## 
+# UTR5_fasta$ZC3H12a_b_c <- str_count(UTR5_fasta$sequence,pattern ="CAGGTAAGTG")
+# 
+# ## 
+# UTR5_fasta$ZC3H8 <- str_count(UTR5_fasta$sequence,pattern ="GCTTGC")
+# 
+# ## ZC3H14
+# UTR5_fasta$ZC3H14_TTT.TTT <- str_count(UTR5_fasta$sequence,pattern ="TTT.TTT")
+# 
+# ## 
+# UTR5_fasta$ZCRB1 <- str_count(UTR5_fasta$sequence,pattern ="G..TTAA")
+# 
+# ## 
+# UTR5_fasta$ZFP36_familly_TTATTTATT <- str_count(UTR5_fasta$sequence,pattern ="TTATTTATT")
+# 
+# ## WAUUUAW
+# UTR5_fasta$ARE_WAUUUAW <- str_count(UTR5_fasta$sequence,pattern = c("TATTTAT","AATTTAA","TATTTAA","AATTTAT"))
+# 
+# #plot(UTR5_fasta$ARE_WAUUUAW, UTR5_fasta$ARE_full_count)
+# 
+# ## WWAUUUAWW
+# UTR5_fasta$ARE_WWAUUUAWW <- str_count(UTR5_fasta$sequence,pattern = c("ATATTTATA","ATATTTATT","TTATTTATA","TTATTTATT","AAATTTAAA","AAATTTAAT","TAATTTAAA","TAATTTAAT","ATATTTAAA","ATATTTAAT","TTATTTAAA","TTATTTAAT","AAATTTATA","AAATTTATT","TAATTTATA","TAATTTATT"))
+# 
+# ## 
+# UTR5_fasta$ZFR_TTGCCGGATGCCGT <- str_count(UTR5_fasta$sequence,pattern =c("TTGCCGGATG..G","GGCACGGATG"))
+# 
+# ## 
+# UTR5_fasta$ZRANB2 <- str_count(UTR5_fasta$sequence,pattern ="GGTAAGGT")
+
+
+UTR5_fasta$Upstream_AUG <- str_count(UTR5_fasta$sequence,pattern ="ATG")
+
+```
+
+## G-C content
+```{r G-C content}
+
+UTR5_fasta$G_count <- str_count(UTR5_fasta$sequence,pattern ="G")
+UTR5_fasta$C_count <- str_count(UTR5_fasta$sequence,pattern ="C")
+
+UTR5_fasta$GC_percentage <- ((UTR5_fasta$G_count + UTR5_fasta$C_count)/UTR5_fasta$UTR5_length)*100
+
+UTR5_fasta$G_count <- NULL
+UTR5_fasta$C_count <- NULL
+
+```
+
+##
+```{r making tables pretty for export}
+Gene_wise_5UTR_list <- UTR5_fasta
+
+
+Gene_wise_5UTR_list$sequence <- NULL
+Gene_wise_5UTR_list$gene_biotype <- NULL
+Gene_wise_5UTR_list$ARE_ATTTA_count <- NULL
+
+colnames(Gene_wise_5UTR_list) <- paste0(colnames(Gene_wise_5UTR_list),"_UTR5")
+
+registerDoMC(4)
+
+Gene_wise_5UTR_list <- ddply(Gene_wise_5UTR_list,"external_gene_name_UTR5", numcolwise(mean), .parallel = T, .progress = T)
+#Gene_wise_5UTR_list$ARE_counts <- ceiling(Gene_wise_5UTR_list$ARE_counts)
+dim(Gene_wise_5UTR_list) # 18601 by 98
+
+write.table(Gene_wise_5UTR_list,"5UTR_motifs_list_from_sequences.csv",sep = ";", dec = ",",row.names = F)
+
+```
+
+
+

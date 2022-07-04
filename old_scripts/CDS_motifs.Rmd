@@ -1,0 +1,739 @@
+---
+title: "CDS characteristics"
+author: "Benoit Nicolet"
+date: "19/5/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+ 
+
+library(plyr)
+library(dplyr)
+library(seqinr)
+library(qdapRegex)
+library(dplyr)
+library(Biostrings)
+library(biomaRt)
+library(stringr)
+library(doMC)
+
+#install.packages("")
+
+# if (!requireNamespace("BiocManager", quietly = TRUE))
+#     install.packages("BiocManager")
+#BiocManager::install("ggplot2")
+
+library(biomaRt)
+
+knitr::opts_knit$set("/home/ben/Analysis/")
+setwd("/home/ben/Analysis/")
+
+```
+
+
+```{r biomart?}
+
+ensembl = useMart(biomart="ensembl", dataset="hsapiens_gene_ensembl")
+#All_filters <- listFilters(ensembl)
+#View(All_filters)
+attributes_ens <- listAttributes(ensembl)
+View(attributes_ens)
+
+IDs_genenames_coding <- getBM(attributes=c("ensembl_gene_id", "ensembl_transcript_id", "external_gene_name","gene_biotype"), mart = ensembl, filters = "with_ccds", values = TRUE)
+
+
+Exon_count <- getBM(attributes=c("ensembl_gene_id", "external_gene_name","ensembl_exon_id"), mart = ensembl, filters = "with_ccds", values = TRUE)
+
+Exon_count$Exon_count <- 1
+Exon_count <- ddply(Exon_count,"external_gene_name", numcolwise(sum))
+
+
+```
+
+## Formatting the fasta from ensembl
+```{r Formatting the fasta from ensembl}
+
+# CDS_fasta <- readtext::readtext("/Users/stinky/Desktop/Sequences_info/CDS_mart_export.txt")
+# glimpse(CDS_fasta)
+# 
+# CDS_fasta <- gsub("\\\n","",CDS_fasta) # removing the newlines
+# 
+# CDS_fasta <- gsub(">","\\\n>",CDS_fasta) ## replace > by \n>
+# 
+# write(CDS_fasta,"/Users/stinky/Desktop/Sequences_info/CDS_ensembl_mart_export_nobreaks.txt")
+
+
+
+```
+
+
+
+```{r importing the formated Fasta file and processing}
+## re-importing ##
+#CDS_fasta <- read.delim("/Users/stinky/Desktop/Sequences_info/CDS_ensembl_mart_export_nobreaks.txt",sep="\t",header = F)
+CDS_fasta <- read.delim("CDS_ensembl_mart_export_nobreaks.txt",sep="\t",header = F)
+
+
+CDS_fasta$gene.id <- mapply(strsplit(as.character(CDS_fasta$V1),"\\|"),FUN=function(x){(as.character(x)[1])})
+CDS_fasta$tx.id <- mapply(strsplit(as.character(CDS_fasta$V1),"\\|"),FUN=function(x){(as.character(x)[2])})
+
+CDS_fasta$gene.id <- gsub(">","",CDS_fasta$gene.id)
+
+CDS_fasta$sequence <- CDS_fasta$tx.id
+CDS_fasta$sequence <- gsub('^...............','',CDS_fasta$sequence)
+
+CDS_fasta$tx.id <- gsub("A","",CDS_fasta$tx.id)
+CDS_fasta$tx.id <- gsub("T","",CDS_fasta$tx.id)
+CDS_fasta$tx.id <- gsub("G","",CDS_fasta$tx.id)
+CDS_fasta$tx.id <- gsub("C","",CDS_fasta$tx.id)
+CDS_fasta$tx.id <- gsub("ENS","ENST",CDS_fasta$tx.id)
+
+CDS_fasta$V1 <- NULL
+
+
+CDS_fasta$CDS_length <- mapply(strsplit(as.character(CDS_fasta$sequence),","),FUN=function(x){nchar(x)})
+
+dim(CDS_fasta)
+CDS_fasta <- merge(CDS_fasta, IDs_genenames_coding, by.x="tx.id",by.y="ensembl_transcript_id",all.x=T)
+dim(CDS_fasta)
+
+## oooh yeah : )
+
+CDS_fasta$ensembl_gene_id <- NULL
+
+
+#CDS_fasta$sequence[CDS_fasta$sequence=="Sequence unavailable",]==""
+
+
+```
+
+
+## Importing ATTRACT DB
+```{r ATtract DB}
+## ATTRACT db downloaded on June 11th 2020 from https://attract.cnic.es/index
+ATTRACT <- read.delim("ATtRACT/ATtRACT_db.txt")
+ATTRACT <- subset(ATTRACT,ATTRACT$Organism=="Homo_sapiens")
+ATTRACT <- subset(ATTRACT,ATTRACT$Mutated=="no")
+dim(ATTRACT) # 3256 motifs
+
+## Lets filter per score 
+# ATTRACT$Score <- gsub("\\*","",ATTRACT$Score)
+# ATTRACT$Score <- as.numeric(ATTRACT$Score)
+# ATTRACT <- subset(ATTRACT,ATTRACT$Score >=0.1)
+
+## converting Us in Ts
+ATTRACT$Motif <- gsub("U","T",ATTRACT$Motif)
+
+table(duplicated(ATTRACT$Motif))
+ATTRACT <- ATTRACT[!duplicated(ATTRACT$Motif),] ## Removing duplicates motifs
+dim(ATTRACT) # 2271 motifs
+
+```
+
+
+## Counting other motifs
+```{r counting other motifs}
+datalist = list()
+#length(ATTRACT$Motif)
+
+
+start_time <- Sys.time()
+for (i in 1:length(ATTRACT$Motif)) {
+    dat <- as.vector(str_count(CDS_fasta$sequence, pattern=as.character(ATTRACT$Motif[i])))
+    datalist[[i]] <- dat # add it to your list
+    ## This next part is just to return the progress (per 10% increase)
+    k <- round((as.numeric(i-1)/length(ATTRACT$Motif))*100,-1)
+    if (round((as.numeric(i)/length(ATTRACT$Motif))*100,-1)>k)
+    {print((paste0(round((as.numeric(i)/length(ATTRACT$Motif))*100,-1),"%")))}
+    else {}
+    flush.console()
+    }
+
+end_time <- Sys.time()
+end_time - start_time
+
+
+CDS_database <- do.call(cbind,datalist)
+
+colnames(CDS_database) <- paste0(ATTRACT$Motif)
+rownames(CDS_database) <- CDS_fasta$tx.id
+dim(CDS_database)
+
+
+CDS_database <- CDS_database[,order(colnames(CDS_database))]
+dim(CDS_database[, colSums(CDS_database) !=0 ]) # 2235 non-empty columns
+CDS_database <- CDS_database[, colSums(CDS_database) != 0]
+
+CDS_database_export <- data.frame(CDS_database)
+
+CDS_database_export$external_gene_name <- CDS_fasta$external_gene_name
+CDS_database_export$tx.id <- CDS_fasta$tx.id
+
+write.table(CDS_database_export,"RBP_motifs_in_human_transcriptome_CDS_hg38_from_ATtRACT_db.csv", sep=";",dec=",", row.names =F, quote = F)
+
+
+CDS_fasta <- cbind(CDS_fasta,CDS_database)
+#glimpse(CDS_fasta[CDS_fasta$external_gene_name=="IFNG",])
+
+```
+
+
+## Counting ATTTA 's
+```{r Counting ATTTAs}
+
+#CDS_fasta$ARE_ATTTA_count <- string.counter(strings=CDS_fasta$sequence, pattern="ATTTA")
+#CDS_fasta$ARE_ATTTA_count_homeade_counter <- string.counter(strings=CDS_fasta$sequence, pattern="ATTTA")
+
+CDS_fasta$ARE_1xATTTA_count <- str_count(CDS_fasta$sequence,pattern ="ATTTA")
+CDS_fasta$ARE_2_count <- str_count(CDS_fasta$sequence, "ATTTATTTA")
+CDS_fasta$ARE_3_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTA")
+CDS_fasta$ARE_4_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTA")
+CDS_fasta$ARE_5_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTA")
+CDS_fasta$ARE_6_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTATTTA")
+CDS_fasta$ARE_7_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTA")
+CDS_fasta$ARE_8_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTA")
+CDS_fasta$ARE_9_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTATTTA")
+CDS_fasta$ARE_10_count <- str_count(CDS_fasta$sequence, "ATTTATTTATTTATTTATTTATTTATTTATTTATTTATTTA")
+
+
+## Correcting for double counting : 
+
+CDS_fasta$ARE_9_count <- CDS_fasta$ARE_9_count- 
+  (CDS_fasta$ARE_10_count*1)
+
+CDS_fasta$ARE_8_count <- CDS_fasta$ARE_8_count- 
+  ((CDS_fasta$ARE_10_count*1)+
+  (CDS_fasta$ARE_9_count*1))
+
+CDS_fasta$ARE_7_count <- CDS_fasta$ARE_7_count- 
+  ((CDS_fasta$ARE_10_count*1)+
+  (CDS_fasta$ARE_9_count*1)+
+  (CDS_fasta$ARE_8_count*1))
+
+CDS_fasta$ARE_6_count <- CDS_fasta$ARE_6_count- 
+  ((CDS_fasta$ARE_10_count*1)+
+  (CDS_fasta$ARE_9_count*1)+
+  (CDS_fasta$ARE_8_count*1)+
+  (CDS_fasta$ARE_7_count*1))
+
+CDS_fasta$ARE_5_count <- CDS_fasta$ARE_5_count- 
+  ((CDS_fasta$ARE_10_count*1)+
+  (CDS_fasta$ARE_9_count*1)+
+  (CDS_fasta$ARE_8_count*1)+
+  (CDS_fasta$ARE_7_count*1)+
+  (CDS_fasta$ARE_6_count*1))
+
+CDS_fasta$ARE_4_count <- CDS_fasta$ARE_4_count- 
+  ((CDS_fasta$ARE_10_count*2)+
+  (CDS_fasta$ARE_9_count*2)+
+  (CDS_fasta$ARE_8_count*1)+
+  (CDS_fasta$ARE_7_count*1)+
+  (CDS_fasta$ARE_6_count*1)+
+  (CDS_fasta$ARE_5_count*1))
+
+CDS_fasta$ARE_3_count <- CDS_fasta$ARE_3_count- 
+  ((CDS_fasta$ARE_10_count*2)+
+  (CDS_fasta$ARE_9_count*2)+
+  (CDS_fasta$ARE_8_count*2)+
+  (CDS_fasta$ARE_7_count*2)+
+  (CDS_fasta$ARE_6_count*1)+
+  (CDS_fasta$ARE_5_count*1)+
+  (CDS_fasta$ARE_4_count*1))
+
+
+CDS_fasta$ARE_2_count <- CDS_fasta$ARE_2_count- 
+  ((CDS_fasta$ARE_10_count*3)+
+  (CDS_fasta$ARE_9_count*3)+
+  (CDS_fasta$ARE_8_count*3)+
+  (CDS_fasta$ARE_7_count*2)+
+  (CDS_fasta$ARE_6_count*2)+
+  (CDS_fasta$ARE_5_count*2)+
+  (CDS_fasta$ARE_4_count*1)+
+  (CDS_fasta$ARE_3_count*1))
+
+CDS_fasta$ARE_1xATTTA_count <- CDS_fasta$ARE_1xATTTA_count- 
+  ((CDS_fasta$ARE_10_count*5)+
+  (CDS_fasta$ARE_9_count*5)+
+  (CDS_fasta$ARE_8_count*4)+
+  (CDS_fasta$ARE_7_count*4)+
+  (CDS_fasta$ARE_6_count*3)+
+  (CDS_fasta$ARE_5_count*3)+
+  (CDS_fasta$ARE_4_count*2)+
+  (CDS_fasta$ARE_3_count*2)+
+  (CDS_fasta$ARE_2_count*1))
+
+
+
+## Now counting the counts:
+
+CDS_fasta$ARE_full_count <-
+  (CDS_fasta$ARE_10_count*10)+
+  (CDS_fasta$ARE_9_count*9)+
+  (CDS_fasta$ARE_8_count*8)+
+  (CDS_fasta$ARE_7_count*7)+
+  (CDS_fasta$ARE_6_count*6)+
+  (CDS_fasta$ARE_5_count*5)+
+  (CDS_fasta$ARE_4_count*4)+
+  (CDS_fasta$ARE_3_count*3)+
+  (CDS_fasta$ARE_2_count*2)+
+  CDS_fasta$ARE_1xATTTA_count
+
+
+
+dim(CDS_fasta) # 43,028
+dim(CDS_fasta[CDS_fasta$ARE_full_count>0,]) # 24,720 sequences with at least 1 "ATTTA" ARE(s) 
+
+#plot(CDS_fasta$ARE_1xATTTA_count, CDS_fasta$ARE_full_count)
+CDS_fasta$ARE_10_count <- NULL
+CDS_fasta$ARE_9_count <- NULL
+CDS_fasta$ARE_8_count <- NULL
+CDS_fasta$ARE_7_count <- NULL
+CDS_fasta$ARE_6_count <- NULL
+CDS_fasta$ARE_5_count <- NULL
+CDS_fasta$ARE_4_count <- NULL
+CDS_fasta$ARE_3_count <- NULL
+CDS_fasta$ARE_2_count <- NULL
+CDS_fasta$ARE_1xATTTA_count <- NULL
+
+```
+
+
+
+## Counting other motifs
+```{r counting other motifs}
+# ## poly-A tail signal AAUAAA
+# CDS_fasta$poly_A_signal_AATAAA <- str_count(CDS_fasta$sequence,pattern ="AATAAA")
+# 
+# ## longer ARE AUUUUUA
+# CDS_fasta$ARE_long_ATTTTTA <- str_count(CDS_fasta$sequence,pattern ="ATTTTTA")
+# 
+# ## 
+# CDS_fasta$AUF1 <- str_count(CDS_fasta$sequence,pattern = c("TTAGA","AGTTT","GTTTG"))
+# 
+# ## 
+# CDS_fasta$BOLL <- str_count(CDS_fasta$sequence,pattern = c("GTTGTGTT",	"GTTTTTTT",	"GTTTTGTT",	"GTTGTTTT"))
+# 
+# ## 
+# CDS_fasta$CARHSP1_ <- str_count(CDS_fasta$sequence,pattern =c("TTGCCTTGTCCCG","GCCATGATCATG"))
+# 
+# ## 
+# CDS_fasta$CELF1_GTGT.TGTGT <- str_count(CDS_fasta$sequence,pattern ="GTGT.TGTGT")
+# 
+# ## 
+# CDS_fasta$CELF3<- str_count(CDS_fasta$sequence,pattern = c("GGTGTGGGTGT","GGTGTTTGTGT"))
+# 
+# ##  
+# CDS_fasta$CELF4_.GTGT.GTG. <- str_count(CDS_fasta$sequence,pattern =".GTGT.GTG.")
+# 
+# ##CNOT4
+# CDS_fasta$CNOT4_GACAGA <- str_count(CDS_fasta$sequence,pattern ="GACAGA")
+# 
+# ## 
+# CDS_fasta$CSTF2_GGCGTAGCGT.. <- str_count(CDS_fasta$sequence,pattern ="GGCGTAGCGT..")
+# 
+# ## 
+# CDS_fasta$CSTF2T_CGTAGCG <- str_count(CDS_fasta$sequence,pattern ="CGTAGCG")
+# 
+# ## 
+# CDS_fasta$CU_rich_CTCTCTCT <- str_count(CDS_fasta$sequence,pattern ="CTCTCTCT")
+# 
+# ## 
+# CDS_fasta$DAZ1_TG.G.GCGTTTCCG <- str_count(CDS_fasta$sequence,pattern ="TG.G.GCGTTTCCG")
+# 
+# ## 
+# CDS_fasta$DAZ3_4_L_TG.GCGCGTTTCCG <- str_count(CDS_fasta$sequence,pattern ="TG.GCGCGTTTCCG")
+# 
+# ## 
+# CDS_fasta$DAZAP1_TTAGGTTAGG <- str_count(CDS_fasta$sequence,pattern ="TTAGGTTAGG")
+# 
+# ## 
+# CDS_fasta$ELAVL1 <- str_count(CDS_fasta$sequence,pattern =c("TTTTT","TTT.T..TTT"))
+# 
+# ## 
+# CDS_fasta$ELAVL3_.TTTTT <- str_count(CDS_fasta$sequence,pattern =".TTTTT")
+# 
+# ## 
+# CDS_fasta$ELAVL4 <- str_count(CDS_fasta$sequence,pattern =c("TTTT.TTTT.",".TTT..TTT."))
+# 
+# ## 
+# CDS_fasta$ESRP1_GGTGTGGTG. <- str_count(CDS_fasta$sequence,pattern ="GGTGTGGTG.")
+# 
+# ## 
+# CDS_fasta$FXR1 <- str_count(CDS_fasta$sequence,pattern =c("ATGACA",	"ACGACA",	"ATGACG"))
+# 
+# ## 
+# CDS_fasta$FXR2 <- str_count(CDS_fasta$sequence,pattern =c("GACGGG",	"GACAAA"))
+# 
+# ## 
+# CDS_fasta$GU_rich_GTGTGTGT <- str_count(CDS_fasta$sequence,pattern ="GTGTGTGT")
+# 
+# ## 
+# CDS_fasta$HEXIM1 <- str_count(CDS_fasta$sequence,pattern = c("CGACGGG","CGACGGT"))
+# 
+# ## 
+# CDS_fasta$HEXIM2 <- str_count(CDS_fasta$sequence,pattern = c("GGCGACGGT",	"GGCGACGGG"))
+# 
+# ## 
+# CDS_fasta$HNRNPA_family <- str_count(CDS_fasta$sequence,pattern =c("TAGGTTAGGG.",	".TAGGTTTAG..",	"GGTTAGGG"))
+# 
+# ## 
+# CDS_fasta$HNRNPC <- str_count(CDS_fasta$sequence,pattern = c("TTTTTGG.GG", "TTTTT.GGG"))
+# 
+# ## 
+# CDS_fasta$HNRNPL <- str_count(CDS_fasta$sequence,pattern =c("ACA..ACA..","ACATACA"))
+# 
+# ## 
+# CDS_fasta$HNRNPLL1 <- str_count(CDS_fasta$sequence,pattern ="GCAT.CA.CC")
+# 
+# ## 
+# CDS_fasta$IGF2BP1 <- str_count(CDS_fasta$sequence,pattern =c("CAG.TACA","CAG.ATCA","CAG.AACA","CAG.TTCA"))
+# 
+# ## 
+# CDS_fasta$ILF3_NF90_TTTTTGAGA <- str_count(CDS_fasta$sequence,pattern ="TTTTTGAGA")
+# 
+# ## 
+# CDS_fasta$KHDRBS1 <- str_count(CDS_fasta$sequence,pattern =c("TAATAGT","TAATAGA","TAATATT","TAATATA"))
+# 
+# ## 
+# CDS_fasta$KHDRBS2 <- str_count(CDS_fasta$sequence,pattern ="TAAACAATAA")
+# 
+# ## 
+# CDS_fasta$KHDRBS3 <- str_count(CDS_fasta$sequence,pattern = c("TAAA.......TAA.", "TAAT.......TAA.", "TTAA.......TAA.", "TTAT.......TAA."))
+# 
+# ## 
+# CDS_fasta$LARP6 <- str_count(CDS_fasta$sequence,pattern =c("GTGTCTGC.....GAAGTC.", "GT.TTGGC.....TGAGC"))
+# 
+# ## 
+# CDS_fasta$LARP7 <- str_count(CDS_fasta$sequence,pattern ="TCGTGATG")
+# 
+# ## 
+# CDS_fasta$MCM3AP <- str_count(CDS_fasta$sequence,pattern ="GCCAGTGCG")
+# 
+# ## 
+# CDS_fasta$MEX3B <- str_count(CDS_fasta$sequence,pattern =c("TAGAGTTTAT","TATAGTTTAT"))
+# 
+# ## 
+# CDS_fasta$MEX3C <- str_count(CDS_fasta$sequence,pattern =c("AGAGT.TAT","AGAGT.TAG"))
+# 
+# ## 
+# CDS_fasta$MEX3D <- str_count(CDS_fasta$sequence,pattern =c("T.TGTTTAT.","T.TATTTAT."))
+# 
+# ## 
+# CDS_fasta$MKRN1 <- str_count(CDS_fasta$sequence,pattern ="GTAAA.TGTAG")
+# 
+# ## 
+# CDS_fasta$MSI1 <- str_count(CDS_fasta$sequence,pattern =".TAGT.GTAG.")
+# 
+# ## 
+# CDS_fasta$MSI2 <- str_count(CDS_fasta$sequence,pattern ="GTAGT..GTAG.")
+# 
+# ## 
+# CDS_fasta$NOVA2 <- str_count(CDS_fasta$sequence,pattern =c("TCAT.CAT","TCAT.CAC"))
+# 
+# ## 
+# CDS_fasta$PABPC5 <- str_count(CDS_fasta$sequence,pattern =c("TA.AAA.TT","TA.AAATTACT"))
+# 
+# ## 
+# CDS_fasta$PCBP1 <- str_count(CDS_fasta$sequence,pattern =".CCTT..CCTT")
+# 
+# ## 
+# CDS_fasta$PUM1 <- str_count(CDS_fasta$sequence,pattern ="TGTAAATAG")
+# 
+# ## 
+# CDS_fasta$PUM2 <- str_count(CDS_fasta$sequence,pattern ="TGTA.ATA")
+# 
+# ## 
+# CDS_fasta$QKI<- str_count(CDS_fasta$sequence,pattern = c("TACTAACAAT","TACTAACATT","TACTAACATA","TACTAACAAA"))
+# 
+# ## 
+# CDS_fasta$RALY_1<- str_count(CDS_fasta$sequence,pattern = c("GGGTCTTATTTTTAA","TTTTTT"))
+# 
+# ## 
+# CDS_fasta$RBFOX1_3 <- str_count(CDS_fasta$sequence,pattern =c("GTTGCATG.G","TTTGCATG.G"))
+# 
+# ## 
+# CDS_fasta$RBM14 <- str_count(CDS_fasta$sequence,pattern =c("GTTGCGTCG",".G.TGGGTCG",".G.TGCGTCG"))
+# 
+# ## 
+# CDS_fasta$RBM24 <- str_count(CDS_fasta$sequence,pattern ="GTGTG.GTGTG")
+# 
+# ## 
+# CDS_fasta$RBM28 <- str_count(CDS_fasta$sequence,pattern ="G.GGCCGAGCGGTGG")
+# 
+# ## 
+# CDS_fasta$RBM38 <- str_count(CDS_fasta$sequence,pattern ="TGGTGTGTGT")
+# 
+# ## 
+# CDS_fasta$RBM4_4B <- str_count(CDS_fasta$sequence,pattern =c(".GTTGCGCGGG",".GTTGCGCGAG"))
+# 
+# ## 
+# CDS_fasta$RBM42 <- str_count(CDS_fasta$sequence,pattern ="GGAACTAAG")
+# 
+# ## 
+# CDS_fasta$RBM46 <- str_count(CDS_fasta$sequence,pattern ="TGATT")
+# 
+# ## 
+# CDS_fasta$RBM6 <- str_count(CDS_fasta$sequence,pattern ="TGCGCTCCT.GC.")
+# 
+# ## 
+# CDS_fasta$RBMS1_2_3 <- str_count(CDS_fasta$sequence,pattern =c("TGTATAA.G","TGCATAA.G","TTATAATCAA."))
+# 
+# ## 
+# CDS_fasta$RBMY1 <- str_count(CDS_fasta$sequence,pattern =c(".GC.TCG.GC.","GCTT.GTGC"))
+# 
+# ## 
+# CDS_fasta$RBMY1I_1J <- str_count(CDS_fasta$sequence,pattern ="G.CCTCAAGG")
+# 
+# ##  
+# CDS_fasta$RBPMS <- str_count(CDS_fasta$sequence,pattern ="AGGCAC")
+# 
+# ## 
+# CDS_fasta$RBPMS2 <- str_count(CDS_fasta$sequence,pattern =c("GCACA","TCACA"))
+# 
+# ## 
+# CDS_fasta$RNPC3 <- str_count(CDS_fasta$sequence,pattern ="GGG..TAC.GGGT")
+# 
+# ## 
+# CDS_fasta$RC3h1_2_Roquin1_2 <- str_count(CDS_fasta$sequence,pattern ="CGTT.TAG")
+# 
+# ## 
+# CDS_fasta$SART3 <- str_count(CDS_fasta$sequence,pattern ="GTTAGC")
+# 
+# ## 
+# CDS_fasta$SNRNP70 <- str_count(CDS_fasta$sequence,pattern =c("G.TCA.G.TG","G.TCA.G.GG"))
+# 
+# ## 
+# CDS_fasta$SNRPA_B2 <- str_count(CDS_fasta$sequence,pattern ="..GCAC.")
+# 
+# ## 
+# CDS_fasta$TARDBP <- str_count(CDS_fasta$sequence,pattern ="GTGTG..TG.")
+# 
+# ## 
+# CDS_fasta$THUMPD1 <- str_count(CDS_fasta$sequence,pattern ="TTCGTGGCTTG")
+# 
+# ## 
+# CDS_fasta$TIA1 <- str_count(CDS_fasta$sequence,pattern ="TTTTTACTCC")
+# 
+# ## 
+# CDS_fasta$U_rich <- str_count(CDS_fasta$sequence,pattern ="TTTTT")
+# 
+# ## 
+# CDS_fasta$YBX1 <- str_count(CDS_fasta$sequence,pattern =c("CCA.G.CATCG","CCA.A.CATCG","CAACCACAA"))
+# 
+# ## 
+# CDS_fasta$YBX2_3 <- str_count(CDS_fasta$sequence,pattern =c("TAACATCA","TAACATCG","TAACATCT"))
+# 
+# ## 
+# CDS_fasta$ZC3H10 <- str_count(CDS_fasta$sequence,pattern ="GCGC..GCG")
+# 
+# ## 
+# CDS_fasta$ZC3H12a_b_c <- str_count(CDS_fasta$sequence,pattern ="CAGGTAAGTG")
+# 
+# ## 
+# CDS_fasta$ZC3H8 <- str_count(CDS_fasta$sequence,pattern ="GCTTGC")
+# 
+# ## ZC3H14
+# CDS_fasta$ZC3H14_TTT.TTT <- str_count(CDS_fasta$sequence,pattern ="TTT.TTT")
+# 
+# ## 
+# CDS_fasta$ZCRB1 <- str_count(CDS_fasta$sequence,pattern ="G..TTAA")
+# 
+# ## 
+# CDS_fasta$ZFP36_familly_TTATTTATT <- str_count(CDS_fasta$sequence,pattern ="TTATTTATT")
+# 
+# ## WAUUUAW
+# CDS_fasta$ARE_WAUUUAW <- str_count(CDS_fasta$sequence,pattern = c("TATTTAT","AATTTAA","TATTTAA","AATTTAT"))
+# 
+# ## WWAUUUAWW
+# CDS_fasta$ARE_WWAUUUAWW <- str_count(CDS_fasta$sequence,pattern = c("ATATTTATA","ATATTTATT","TTATTTATA","TTATTTATT","AAATTTAAA","AAATTTAAT","TAATTTAAA","TAATTTAAT","ATATTTAAA","ATATTTAAT","TTATTTAAA","TTATTTAAT","AAATTTATA","AAATTTATT","TAATTTATA","TAATTTATT"))
+# 
+# ## 
+# CDS_fasta$ZFR_TTGCCGGATGCCGT <- str_count(CDS_fasta$sequence,pattern =c("TTGCCGGATG..G","GGCACGGATG"))
+# 
+# ## 
+# CDS_fasta$ZRANB2 <- str_count(CDS_fasta$sequence,pattern ="GGTAAGGT")
+
+```
+
+
+
+
+## G-C content
+```{r G-C content}
+
+CDS_fasta$G_count <- str_count(CDS_fasta$sequence,pattern ="G")
+CDS_fasta$C_count <- str_count(CDS_fasta$sequence,pattern ="C")
+
+CDS_fasta$GC_percentage <- ((CDS_fasta$G_count + CDS_fasta$C_count)/CDS_fasta$CDS_length)*100
+
+CDS_fasta$G_count <- NULL
+CDS_fasta$C_count <- NULL
+
+
+```
+
+
+## GC3 content
+```{r GC3 content}
+
+
+CDS_fasta$XXG <- str_count(CDS_fasta$sequence,pattern ="..G")
+CDS_fasta$XXC <- str_count(CDS_fasta$sequence,pattern ="..C")
+CDS_fasta$XXA <- str_count(CDS_fasta$sequence,pattern ="..A")
+CDS_fasta$XXT <- str_count(CDS_fasta$sequence,pattern ="..T")
+
+CDS_fasta$GC3_perc <- ((CDS_fasta$XXG + CDS_fasta$XXC) / (CDS_fasta$XXA + CDS_fasta$XXT+ CDS_fasta$XXG + CDS_fasta$XXC))*100
+CDS_fasta$AT3_perc <- ((CDS_fasta$XXA + CDS_fasta$XXT) / (CDS_fasta$XXA + CDS_fasta$XXT+ CDS_fasta$XXG + CDS_fasta$XXC))*100
+
+hist(CDS_fasta$GC3_perc)
+plot(CDS_fasta$GC3_perc,CDS_fasta$AT3_perc)
+
+
+CDS_fasta$XXG <- NULL
+CDS_fasta$XXC <- NULL
+CDS_fasta$XXA <- NULL
+CDS_fasta$XXT <- NULL
+
+
+```
+
+
+## codon usage
+```{r codon usage}
+#BiocManager::install("coRdon")
+library(coRdon)
+
+## Getting all codon usage info! ##
+CDS_fasta_codon <- data.frame(row.names = CDS_fasta$tx.id,"seq"=CDS_fasta$sequence)
+CDS_fasta_codon_count <- DNAStringSet(CDS_fasta_codon$seq,use.names = T)
+
+CDS_fasta_codon_count_table <- codonTable(CDS_fasta_codon_count)
+CDS_fasta_codon_count <- data.frame(codonCounts(CDS_fasta_codon_count_table))
+
+CDS_fasta_codon_count$AA_length <- rowSums(CDS_fasta_codon_count)
+
+CDS_fasta_codon_count[1:64] <- (CDS_fasta_codon_count[1:64]/CDS_fasta_codon_count$AA_length)*100
+
+CDS_fasta_codon_count$AA_length <- NULL
+
+colnames(CDS_fasta_codon_count) <- paste0(colnames(CDS_fasta_codon_count),"_codon")
+
+CDS_fasta <- cbind.data.frame(CDS_fasta,CDS_fasta_codon_count)
+
+## other codon usage measures ##
+
+MILC_tx <- MILC(CDS_fasta_codon_count_table, ribosomal = FALSE, alt.init = TRUE)
+B_tx <- B(CDS_fasta_codon_count_table, ribosomal = FALSE, alt.init = TRUE)
+colnames(MILC_tx) <- "MILC"
+colnames(B_tx) <- "CUB"
+CDS_fasta <- cbind.data.frame(CDS_fasta,MILC_tx,B_tx)
+
+```
+
+
+```{r AA usage}
+
+CDS_fasta$translation <- mapply(strsplit(as.character(CDS_fasta$sequence),","),FUN=function(x){as.character(translate(DNAString(x)))})
+
+CDS_fasta$STP <- str_count(CDS_fasta$translation,pattern ="\\*")
+CDS_fasta$A_amino <- str_count(CDS_fasta$translation,pattern ="A")
+CDS_fasta$C_amino <- str_count(CDS_fasta$translation,pattern ="C")
+CDS_fasta$D_amino <- str_count(CDS_fasta$translation,pattern ="D")
+CDS_fasta$E_amino <- str_count(CDS_fasta$translation,pattern ="E")
+CDS_fasta$F_amino <- str_count(CDS_fasta$translation,pattern ="F")
+CDS_fasta$G_amino <- str_count(CDS_fasta$translation,pattern ="G")
+CDS_fasta$H_amino <- str_count(CDS_fasta$translation,pattern ="H")
+CDS_fasta$I_amino <- str_count(CDS_fasta$translation,pattern ="I")
+CDS_fasta$K_amino <- str_count(CDS_fasta$translation,pattern ="K")
+CDS_fasta$L_amino <- str_count(CDS_fasta$translation,pattern ="L")
+CDS_fasta$M_amino <- str_count(CDS_fasta$translation,pattern ="M")
+CDS_fasta$N_amino <- str_count(CDS_fasta$translation,pattern ="N")
+CDS_fasta$P_amino <- str_count(CDS_fasta$translation,pattern ="P")
+CDS_fasta$Q_amino <- str_count(CDS_fasta$translation,pattern ="Q")
+CDS_fasta$R_amino <- str_count(CDS_fasta$translation,pattern ="R")
+CDS_fasta$S_amino <- str_count(CDS_fasta$translation,pattern ="S")
+CDS_fasta$T_amino <- str_count(CDS_fasta$translation,pattern ="T")
+CDS_fasta$V_amino <- str_count(CDS_fasta$translation,pattern ="V")
+CDS_fasta$W_amino <- str_count(CDS_fasta$translation,pattern ="W")
+CDS_fasta$Y_amino <- str_count(CDS_fasta$translation,pattern ="Y")
+
+CDS_fasta$AA_length <- mapply(strsplit(as.character(CDS_fasta$translation),","),FUN=function(x){nchar(x)})
+CDS_fasta$STP <- NULL
+CDS_fasta[172:192] <- (CDS_fasta[172:192]/CDS_fasta$AA_length)*100
+
+
+
+```
+
+## m6A content
+```{r m6A}
+# # Acquired from m6avar.renlab.org on June 4th 2020 # #
+
+m6A <- read.delim("m6A_Human_protein_coding.txt",sep="\t")
+dim(m6A)
+head(m6A)
+
+m6A <- data.frame("gene_name"=m6A$Gene,"gene_id"=m6A$Ensembl_Gene_ID,"m6A_gene_region"=m6A$Gene_Region,"total_m6A"=1)
+dim(m6A)
+
+m6A$CDS_m6a <- ifelse(m6A$m6A_gene_region=="CDS",1,0)
+m6A$UTR5_m6a <- ifelse(m6A$m6A_gene_region=="UTR5",1,0)
+m6A$UTR3_m6a <- ifelse(m6A$m6A_gene_region=="UTR3",1,0)
+
+m6A$m6A_gene_region <- NULL
+
+m6A <- ddply(m6A,"gene_name", numcolwise(sum))
+
+```
+
+
+## Making tables pretty for export
+```{r making tables pretty for export}
+registerDoMC(4)
+gc()
+Gene_wise_CDS_list <- CDS_fasta
+  
+Gene_wise_CDS_list$sequence <- NULL
+Gene_wise_CDS_list$gene_biotype <- NULL
+Gene_wise_CDS_list$ARE_ATTTA_count <- NULL
+
+colnames(Gene_wise_CDS_list) <- paste0(colnames(Gene_wise_CDS_list),"_CDS")
+
+Gene_wise_CDS_list <- ddply(Gene_wise_CDS_list,"external_gene_name_CDS", numcolwise(mean), .parallel = T, .progress = T)
+gc()
+#Gene_wise_CDS_list$ARE_counts <- ceiling(Gene_wise_CDS_list$ARE_counts)
+dim(Gene_wise_CDS_list) # 18994 
+
+Gene_wise_CDS_list <- merge(Gene_wise_CDS_list,Exon_count, by.x="external_gene_name_CDS",by.y="external_gene_name")
+dim(Gene_wise_CDS_list)
+
+Gene_wise_CDS_list <- merge(Gene_wise_CDS_list,m6A, by.x="external_gene_name_CDS",by.y="gene_name", all.x=T)
+dim(Gene_wise_CDS_list)
+
+
+
+write.table(Gene_wise_CDS_list,"CDS_motifs_list_from_sequences.csv",sep = ";", dec = ",",row.names = F)
+
+
+```
+
+
+
+## distance between AREs (ATTTA)
+```{r distance between AREs}
+
+#CDS_fasta$seq_in_between_AREs <- rm_between(CDS_fasta$sequence, 'ATTTA', 'ATTTA', extract=TRUE)
+
+
+
+#CDS_fasta$dist_between_AREs <- mapply(strsplit(as.character(CDS_fasta$seq_in_between_AREs),","),FUN=function(x){nchar(x)})
+
+
+
+
+#AREs_motifs<- as.vector("ATTTA","TATTTAT","AATTTAA","TATTTAA","AATTTAT","ATATTTATA","ATATTTATT","TTATTTATA","TTATTTATT","AAATTTAAA","AAATTTAAT","TAATTTAAA","TAATTTAAT","ATATTTAAA","ATATTTAAT","TTATTTAAA","TTATTTAAT","AAATTTATA","AAATTTATT","TAATTTATA","TAATTTATT")
+
+```
+
