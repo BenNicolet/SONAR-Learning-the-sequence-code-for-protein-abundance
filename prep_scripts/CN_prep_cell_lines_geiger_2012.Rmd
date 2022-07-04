@@ -1,0 +1,180 @@
+---
+title: "Preparation of CN tables for RF in T cell susbsets"
+author: "Benoit Nicolet"
+date: "27/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/")
+setwd("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/")
+
+
+```
+
+
+```{r Protein library v1}
+
+Sequence_parameters <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/Protein_per_Uniprot_entry_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB_PTM.csv", sep="\t", dec=".")
+#Sequence_parameters$ID <- rownames(Sequence_parameters)
+
+CN_MANN <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/CN_cell_lines_geiger_2012_from_LFQ.txt")
+# CN_MANN <- data.frame(CN_MANN[,533:537],CN_MANN %>% dplyr::select(contains("copy")))
+# CN_MANN <- data.frame(CN_MANN[,1:4],CN_MANN %>% dplyr::select(contains("steady")))
+CN_MANN$T..Protein.names <- NULL
+CN_MANN$T..Gene.name <- NULL #mapply(strsplit(as.character(CN_MANN$T..Gene.names),";"),FUN=function(x){(as.character(x)[1])})
+
+dim(CN_MANN)
+
+# Making a unique protein ID column # 
+
+CN_MANN$Entry_1 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[1])})
+CN_MANN$Entry_2 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[2])})
+CN_MANN$Entry_3 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[3])})
+CN_MANN$Entry_4 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[4])})
+CN_MANN$Entry_5 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[5])})
+CN_MANN$Entry_6 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[6])})
+CN_MANN$Entry_7 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[7])})
+CN_MANN$Entry_8 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[8])})
+CN_MANN$Entry_9 <- mapply(strsplit(as.character(CN_MANN$T..Uniprot),";"),FUN=function(x){(as.character(x)[9])})
+
+dim(CN_MANN)
+dim(CN_MANN[CN_MANN$Entry_1 %in% Sequence_parameters$Entry,])
+dim(CN_MANN[CN_MANN$Entry_9 %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry[CN_MANN$Entry_1 %in% Sequence_parameters$Entry] <- CN_MANN$Entry_1[CN_MANN$Entry_1 %in% Sequence_parameters$Entry]
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_2 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_2,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_3 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_3,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_4 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_4,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_5 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_5,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_6 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_6,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_7 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_7,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_8 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_8,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_9 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_9,CN_MANN$Entry)
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+table(duplicated(CN_MANN$Entry))
+CN_MANN[duplicated(CN_MANN$Entry)==TRUE,]
+
+registerDoMC(4)
+CN_MANN <- ddply(CN_MANN,"Entry", numcolwise(sum), .parallel = T, .progress = T)
+dim(CN_MANN)
+
+
+```
+
+
+```{r HEK293 Tn}
+
+HEK293_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("HEK")) %>% dplyr::select(contains("copy")) )
+dim(HEK293_MS)
+
+HEK293_CN<- NULL
+HEK293_CN$ID <- HEK293_MS$Entry
+HEK293_CN$CN <- rowMeans(HEK293_MS[,2:4],na.rm = T)
+HEK293_CN <- data.frame(HEK293_CN)
+
+dim(HEK293_CN)
+HEK293_CN <- subset(HEK293_CN, HEK293_CN$CN>0)
+
+HEK293_CN$CN <- log10(HEK293_CN$CN)
+dim(HEK293_CN) # 6178 proteins expressed in  HEK293 Tn !
+HEK293_CN <- subset(HEK293_CN,HEK293_CN$CN<8)
+
+
+
+write.table(HEK293_CN,"/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/HEK293_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+dim(HEK293_CN)
+dim(HEK293_CN[HEK293_CN$ID %in% Sequence_parameters$Entry,]) # 6178
+```
+
+
+
+
+
+```{r HeLa}
+
+HeLa_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("Hela")) %>% dplyr::select(contains("copy")) )
+dim(HeLa_MS)
+
+HeLa_CN<- NULL
+HeLa_CN$ID <- HeLa_MS$Entry
+HeLa_CN$CN <- rowMeans(HeLa_MS[,2:4],na.rm = T)
+HeLa_CN <- data.frame(HeLa_CN)
+
+dim(HeLa_CN)
+HeLa_CN <- subset(HeLa_CN, HeLa_CN$CN>0)
+
+HeLa_CN$CN <- log10(HeLa_CN$CN)
+dim(HeLa_CN) # 5487 proteins expressed in  HeLa Tn !
+# HeLa_CN <- subset(HeLa_CN,HeLa_CN$CN<8.4)
+
+write.table(HeLa_CN,"/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/HeLa_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+dim(HeLa_CN)
+dim(HeLa_CN[HeLa_CN$ID %in% Sequence_parameters$Entry,]) # 5487
+```
+
+
+
+
+
+```{r K562 Tn}
+
+K562_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("K562")) %>% dplyr::select(contains("copy")) )
+dim(K562_MS)
+
+K562_CN<- NULL
+K562_CN$ID <- K562_MS$Entry
+K562_CN$CN <- rowMeans(K562_MS[,2:4],na.rm = T)
+K562_CN <- data.frame(K562_CN)
+
+dim(K562_CN)
+K562_CN <- subset(K562_CN, K562_CN$CN>0)
+
+K562_CN$CN <- log10(K562_CN$CN)
+dim(K562_CN) # 5027 proteins expressed in  K562 Tn !
+K562_CN <- subset(K562_CN,K562_CN$CN<7.9)
+
+write.table(K562_CN,"/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/K562_CN_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+dim(K562_CN)
+dim(K562_CN[K562_CN$ID %in% Sequence_parameters$Entry,]) # 5027 pt
+```

@@ -1,0 +1,369 @@
+---
+title: "Preparation of TPM tables for XGBoost models in TILs"
+author: "Benoit Nicolet"
+date: "24/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/dysfunctional_Tcells/")
+setwd("/home/ben/Analysis/RF_human/dysfunctional_Tcells/")
+
+
+```
+
+
+```{r BiomaRt}
+## Biomart ##
+ensembl <- useEnsembl(biomart="ensembl",dataset="hsapiens_gene_ensembl", host = "https://apr2018.archive.ensembl.org")
+
+tx2gene <- getBM(attributes=c("ensembl_transcript_id_version","ensembl_transcript_id","external_gene_name","gene_biotype"), mart = ensembl)
+tx2gene <- subset(tx2gene,tx2gene$gene_biotype=="protein_coding")
+
+```
+
+
+```{r EM_A_SRR5635568}
+EM_A_SRR5635568 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635568.sra/quant.sf")
+EM_A_SRR5635568 <- data.frame("ID"=EM_A_SRR5635568$Name,"TPM"=EM_A_SRR5635568$TPM)
+EM_A_SRR5635568 <- subset(EM_A_SRR5635568,EM_A_SRR5635568$TPM>0)
+dim(EM_A_SRR5635568) #  70792   2
+EM_A_SRR5635568 <- merge(EM_A_SRR5635568,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(EM_A_SRR5635568) # 65974  5
+
+EM_A_SRR5635568$TPM <- log10(EM_A_SRR5635568$TPM)
+EM_A_SRR5635568 <- subset(EM_A_SRR5635568, EM_A_SRR5635568$TPM>=-1)
+EM_A_SRR5635568 <- data.frame("ID"=EM_A_SRR5635568$ensembl_transcript_id, "TPM"=EM_A_SRR5635568$TPM)
+
+write.table(EM_A_SRR5635568,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/EM_A.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+```{r EM_B_SRR5635569}
+EM_B_SRR5635569 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635569.sra/quant.sf")
+EM_B_SRR5635569 <- data.frame("ID"=EM_B_SRR5635569$Name,"TPM"=EM_B_SRR5635569$TPM)
+EM_B_SRR5635569 <- subset(EM_B_SRR5635569,EM_B_SRR5635569$TPM>0)
+dim(EM_B_SRR5635569) #  70792   2
+EM_B_SRR5635569 <- merge(EM_B_SRR5635569,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(EM_B_SRR5635569) # 65974  5
+
+EM_B_SRR5635569$TPM <- log10(EM_B_SRR5635569$TPM)
+EM_B_SRR5635569 <- subset(EM_B_SRR5635569, EM_B_SRR5635569$TPM>=-1)
+EM_B_SRR5635569 <- data.frame("ID"=EM_B_SRR5635569$ensembl_transcript_id, "TPM"=EM_B_SRR5635569$TPM)
+
+write.table(EM_B_SRR5635569,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/EM_B.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+```{r EM_C_SRR5635570}
+EM_C_SRR5635570 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635570.sra/quant.sf")
+EM_C_SRR5635570 <- data.frame("ID"=EM_C_SRR5635570$Name,"TPM"=EM_C_SRR5635570$TPM)
+EM_C_SRR5635570 <- subset(EM_C_SRR5635570,EM_C_SRR5635570$TPM>0)
+dim(EM_C_SRR5635570) #  70792   2
+EM_C_SRR5635570 <- merge(EM_C_SRR5635570,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(EM_C_SRR5635570) # 65974  5
+
+EM_C_SRR5635570$TPM <- log10(EM_C_SRR5635570$TPM)
+EM_C_SRR5635570 <- subset(EM_C_SRR5635570, EM_C_SRR5635570$TPM>=-1)
+EM_C_SRR5635570 <- data.frame("ID"=EM_C_SRR5635570$ensembl_transcript_id, "TPM"=EM_C_SRR5635570$TPM)
+
+write.table(EM_C_SRR5635570,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/EM_C.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+```{r EM_D_SRR5635571}
+EM_D_SRR5635571 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635571.sra/quant.sf")
+EM_D_SRR5635571 <- data.frame("ID"=EM_D_SRR5635571$Name,"TPM"=EM_D_SRR5635571$TPM)
+EM_D_SRR5635571 <- subset(EM_D_SRR5635571,EM_D_SRR5635571$TPM>0)
+dim(EM_D_SRR5635571) #  70792   2
+EM_D_SRR5635571 <- merge(EM_D_SRR5635571,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(EM_D_SRR5635571) # 65974  5
+
+EM_D_SRR5635571$TPM <- log10(EM_D_SRR5635571$TPM)
+EM_D_SRR5635571 <- subset(EM_D_SRR5635571, EM_D_SRR5635571$TPM>=-1)
+EM_D_SRR5635571 <- data.frame("ID"=EM_D_SRR5635571$ensembl_transcript_id, "TPM"=EM_D_SRR5635571$TPM)
+
+write.table(EM_D_SRR5635571,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/EM_D.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+
+
+
+
+### TILs ###
+
+
+
+```{r PD1_hi_A_SRR5635535}
+PD1_hi_A_SRR5635535 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635535.sra/quant.sf")
+PD1_hi_A_SRR5635535 <- data.frame("ID"=PD1_hi_A_SRR5635535$Name,"TPM"=PD1_hi_A_SRR5635535$TPM)
+PD1_hi_A_SRR5635535 <- subset(PD1_hi_A_SRR5635535,PD1_hi_A_SRR5635535$TPM>0)
+dim(PD1_hi_A_SRR5635535) #  70792   2
+PD1_hi_A_SRR5635535 <- merge(PD1_hi_A_SRR5635535,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_hi_A_SRR5635535) # 65974  5
+
+PD1_hi_A_SRR5635535$TPM <- log10(PD1_hi_A_SRR5635535$TPM)
+PD1_hi_A_SRR5635535 <- subset(PD1_hi_A_SRR5635535, PD1_hi_A_SRR5635535$TPM>=-1)
+PD1_hi_A_SRR5635535 <- data.frame("ID"=PD1_hi_A_SRR5635535$ensembl_transcript_id, "TPM"=PD1_hi_A_SRR5635535$TPM)
+
+write.table(PD1_hi_A_SRR5635535,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_hi_A.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+```{r PD1_int_A_SRR5635536}
+PD1_int_A_SRR5635536 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635536.sra/quant.sf")
+PD1_int_A_SRR5635536 <- data.frame("ID"=PD1_int_A_SRR5635536$Name,"TPM"=PD1_int_A_SRR5635536$TPM)
+PD1_int_A_SRR5635536 <- subset(PD1_int_A_SRR5635536,PD1_int_A_SRR5635536$TPM>0)
+dim(PD1_int_A_SRR5635536) #  70792   2
+PD1_int_A_SRR5635536 <- merge(PD1_int_A_SRR5635536,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_int_A_SRR5635536) # 65974  5
+
+PD1_int_A_SRR5635536$TPM <- log10(PD1_int_A_SRR5635536$TPM)
+PD1_int_A_SRR5635536 <- subset(PD1_int_A_SRR5635536, PD1_int_A_SRR5635536$TPM>=-1)
+PD1_int_A_SRR5635536 <- data.frame("ID"=PD1_int_A_SRR5635536$ensembl_transcript_id, "TPM"=PD1_int_A_SRR5635536$TPM)
+
+write.table(PD1_int_A_SRR5635536,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_int_A.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_neg_A_SRR5635537}
+PD1_neg_A_SRR5635537 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635537.sra/quant.sf")
+PD1_neg_A_SRR5635537 <- data.frame("ID"=PD1_neg_A_SRR5635537$Name,"TPM"=PD1_neg_A_SRR5635537$TPM)
+PD1_neg_A_SRR5635537 <- subset(PD1_neg_A_SRR5635537,PD1_neg_A_SRR5635537$TPM>0)
+dim(PD1_neg_A_SRR5635537) #  70792   2
+PD1_neg_A_SRR5635537 <- merge(PD1_neg_A_SRR5635537,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_neg_A_SRR5635537) # 65974  5
+
+PD1_neg_A_SRR5635537$TPM <- log10(PD1_neg_A_SRR5635537$TPM)
+PD1_neg_A_SRR5635537 <- subset(PD1_neg_A_SRR5635537, PD1_neg_A_SRR5635537$TPM>=-1)
+PD1_neg_A_SRR5635537 <- data.frame("ID"=PD1_neg_A_SRR5635537$ensembl_transcript_id, "TPM"=PD1_neg_A_SRR5635537$TPM)
+
+write.table(PD1_neg_A_SRR5635537,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_neg_A.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r PD1_hi_B_SRR5635538}
+PD1_hi_B_SRR5635538 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635538.sra/quant.sf")
+PD1_hi_B_SRR5635538 <- data.frame("ID"=PD1_hi_B_SRR5635538$Name,"TPM"=PD1_hi_B_SRR5635538$TPM)
+PD1_hi_B_SRR5635538 <- subset(PD1_hi_B_SRR5635538,PD1_hi_B_SRR5635538$TPM>0)
+dim(PD1_hi_B_SRR5635538) #  70792   2
+PD1_hi_B_SRR5635538 <- merge(PD1_hi_B_SRR5635538,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_hi_B_SRR5635538) # 65974  5
+
+PD1_hi_B_SRR5635538$TPM <- log10(PD1_hi_B_SRR5635538$TPM)
+PD1_hi_B_SRR5635538 <- subset(PD1_hi_B_SRR5635538, PD1_hi_B_SRR5635538$TPM>=-1)
+PD1_hi_B_SRR5635538 <- data.frame("ID"=PD1_hi_B_SRR5635538$ensembl_transcript_id, "TPM"=PD1_hi_B_SRR5635538$TPM)
+
+write.table(PD1_hi_B_SRR5635538,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_hi_B.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_int_B_SRR5635539}
+PD1_int_B_SRR5635539 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635539.sra/quant.sf")
+PD1_int_B_SRR5635539 <- data.frame("ID"=PD1_int_B_SRR5635539$Name,"TPM"=PD1_int_B_SRR5635539$TPM)
+PD1_int_B_SRR5635539 <- subset(PD1_int_B_SRR5635539,PD1_int_B_SRR5635539$TPM>0)
+dim(PD1_int_B_SRR5635539) #  70792   2
+PD1_int_B_SRR5635539 <- merge(PD1_int_B_SRR5635539,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_int_B_SRR5635539) # 65974  5
+
+PD1_int_B_SRR5635539$TPM <- log10(PD1_int_B_SRR5635539$TPM)
+PD1_int_B_SRR5635539 <- subset(PD1_int_B_SRR5635539, PD1_int_B_SRR5635539$TPM>=-1)
+PD1_int_B_SRR5635539 <- data.frame("ID"=PD1_int_B_SRR5635539$ensembl_transcript_id, "TPM"=PD1_int_B_SRR5635539$TPM)
+
+write.table(PD1_int_B_SRR5635539,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_int_B.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_neg_B_SRR5635540}
+PD1_neg_B_SRR5635540 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635540.sra/quant.sf")
+PD1_neg_B_SRR5635540 <- data.frame("ID"=PD1_neg_B_SRR5635540$Name,"TPM"=PD1_neg_B_SRR5635540$TPM)
+PD1_neg_B_SRR5635540 <- subset(PD1_neg_B_SRR5635540,PD1_neg_B_SRR5635540$TPM>0)
+dim(PD1_neg_B_SRR5635540) #  70792   2
+PD1_neg_B_SRR5635540 <- merge(PD1_neg_B_SRR5635540,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_neg_B_SRR5635540) # 65974  5
+
+PD1_neg_B_SRR5635540$TPM <- log10(PD1_neg_B_SRR5635540$TPM)
+PD1_neg_B_SRR5635540 <- subset(PD1_neg_B_SRR5635540, PD1_neg_B_SRR5635540$TPM>=-1)
+PD1_neg_B_SRR5635540 <- data.frame("ID"=PD1_neg_B_SRR5635540$ensembl_transcript_id, "TPM"=PD1_neg_B_SRR5635540$TPM)
+
+write.table(PD1_neg_B_SRR5635540,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_neg_B.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+
+
+
+```{r PD1_hi_C_SRR5635541}
+PD1_hi_C_SRR5635541 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635541.sra/quant.sf")
+PD1_hi_C_SRR5635541 <- data.frame("ID"=PD1_hi_C_SRR5635541$Name,"TPM"=PD1_hi_C_SRR5635541$TPM)
+PD1_hi_C_SRR5635541 <- subset(PD1_hi_C_SRR5635541,PD1_hi_C_SRR5635541$TPM>0)
+dim(PD1_hi_C_SRR5635541) #  70792   2
+PD1_hi_C_SRR5635541 <- merge(PD1_hi_C_SRR5635541,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_hi_C_SRR5635541) # 65974  5
+
+PD1_hi_C_SRR5635541$TPM <- log10(PD1_hi_C_SRR5635541$TPM)
+PD1_hi_C_SRR5635541 <- subset(PD1_hi_C_SRR5635541, PD1_hi_C_SRR5635541$TPM>=-1)
+PD1_hi_C_SRR5635541 <- data.frame("ID"=PD1_hi_C_SRR5635541$ensembl_transcript_id, "TPM"=PD1_hi_C_SRR5635541$TPM)
+
+write.table(PD1_hi_C_SRR5635541,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_hi_C.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_int_C_SRR5635542}
+PD1_int_C_SRR5635542 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635542.sra/quant.sf")
+PD1_int_C_SRR5635542 <- data.frame("ID"=PD1_int_C_SRR5635542$Name,"TPM"=PD1_int_C_SRR5635542$TPM)
+PD1_int_C_SRR5635542 <- subset(PD1_int_C_SRR5635542,PD1_int_C_SRR5635542$TPM>0)
+dim(PD1_int_C_SRR5635542) #  70792   2
+PD1_int_C_SRR5635542 <- merge(PD1_int_C_SRR5635542,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_int_C_SRR5635542) # 65974  5
+
+PD1_int_C_SRR5635542$TPM <- log10(PD1_int_C_SRR5635542$TPM)
+PD1_int_C_SRR5635542 <- subset(PD1_int_C_SRR5635542, PD1_int_C_SRR5635542$TPM>=-1)
+PD1_int_C_SRR5635542 <- data.frame("ID"=PD1_int_C_SRR5635542$ensembl_transcript_id, "TPM"=PD1_int_C_SRR5635542$TPM)
+
+write.table(PD1_int_C_SRR5635542,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_int_C.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_neg_C_SRR5635543}
+PD1_neg_C_SRR5635543 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635543.sra/quant.sf")
+PD1_neg_C_SRR5635543 <- data.frame("ID"=PD1_neg_C_SRR5635543$Name,"TPM"=PD1_neg_C_SRR5635543$TPM)
+PD1_neg_C_SRR5635543 <- subset(PD1_neg_C_SRR5635543,PD1_neg_C_SRR5635543$TPM>0)
+dim(PD1_neg_C_SRR5635543) #  70792   2
+PD1_neg_C_SRR5635543 <- merge(PD1_neg_C_SRR5635543,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_neg_C_SRR5635543) # 65974  5
+
+PD1_neg_C_SRR5635543$TPM <- log10(PD1_neg_C_SRR5635543$TPM)
+PD1_neg_C_SRR5635543 <- subset(PD1_neg_C_SRR5635543, PD1_neg_C_SRR5635543$TPM>=-1)
+PD1_neg_C_SRR5635543 <- data.frame("ID"=PD1_neg_C_SRR5635543$ensembl_transcript_id, "TPM"=PD1_neg_C_SRR5635543$TPM)
+
+write.table(PD1_neg_C_SRR5635543,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_neg_C.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+
+
+
+
+```{r PD1_hi_D_SRR5635544}
+PD1_hi_D_SRR5635544 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635544.sra/quant.sf")
+PD1_hi_D_SRR5635544 <- data.frame("ID"=PD1_hi_D_SRR5635544$Name,"TPM"=PD1_hi_D_SRR5635544$TPM)
+PD1_hi_D_SRR5635544 <- subset(PD1_hi_D_SRR5635544,PD1_hi_D_SRR5635544$TPM>0)
+dim(PD1_hi_D_SRR5635544) #  70792   2
+PD1_hi_D_SRR5635544 <- merge(PD1_hi_D_SRR5635544,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_hi_D_SRR5635544) # 65974  5
+
+PD1_hi_D_SRR5635544$TPM <- log10(PD1_hi_D_SRR5635544$TPM)
+PD1_hi_D_SRR5635544 <- subset(PD1_hi_D_SRR5635544, PD1_hi_D_SRR5635544$TPM>=-1)
+PD1_hi_D_SRR5635544 <- data.frame("ID"=PD1_hi_D_SRR5635544$ensembl_transcript_id, "TPM"=PD1_hi_D_SRR5635544$TPM)
+
+write.table(PD1_hi_D_SRR5635544,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_hi_D.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_int_D_SRR5635545}
+PD1_int_D_SRR5635545 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635545.sra/quant.sf")
+PD1_int_D_SRR5635545 <- data.frame("ID"=PD1_int_D_SRR5635545$Name,"TPM"=PD1_int_D_SRR5635545$TPM)
+PD1_int_D_SRR5635545 <- subset(PD1_int_D_SRR5635545,PD1_int_D_SRR5635545$TPM>0)
+dim(PD1_int_D_SRR5635545) #  70792   2
+PD1_int_D_SRR5635545 <- merge(PD1_int_D_SRR5635545,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_int_D_SRR5635545) # 65974  5
+
+PD1_int_D_SRR5635545$TPM <- log10(PD1_int_D_SRR5635545$TPM)
+PD1_int_D_SRR5635545 <- subset(PD1_int_D_SRR5635545, PD1_int_D_SRR5635545$TPM>=-1)
+PD1_int_D_SRR5635545 <- data.frame("ID"=PD1_int_D_SRR5635545$ensembl_transcript_id, "TPM"=PD1_int_D_SRR5635545$TPM)
+
+write.table(PD1_int_D_SRR5635545,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_int_D.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
+
+
+```{r PD1_neg_D_SRR5635546}
+PD1_neg_D_SRR5635546 <- read.delim("/home/ben/Analysis/RF_human/dysfunctional_Tcells/Salmon_output/SRR5635546.sra/quant.sf")
+PD1_neg_D_SRR5635546 <- data.frame("ID"=PD1_neg_D_SRR5635546$Name,"TPM"=PD1_neg_D_SRR5635546$TPM)
+PD1_neg_D_SRR5635546 <- subset(PD1_neg_D_SRR5635546,PD1_neg_D_SRR5635546$TPM>0)
+dim(PD1_neg_D_SRR5635546) #  70792   2
+PD1_neg_D_SRR5635546 <- merge(PD1_neg_D_SRR5635546,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version",all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(PD1_neg_D_SRR5635546) # 65974  5
+
+PD1_neg_D_SRR5635546$TPM <- log10(PD1_neg_D_SRR5635546$TPM)
+PD1_neg_D_SRR5635546 <- subset(PD1_neg_D_SRR5635546, PD1_neg_D_SRR5635546$TPM>=-1)
+PD1_neg_D_SRR5635546 <- data.frame("ID"=PD1_neg_D_SRR5635546$ensembl_transcript_id, "TPM"=PD1_neg_D_SRR5635546$TPM)
+
+write.table(PD1_neg_D_SRR5635546,"/home/ben/Analysis/RF_human/dysfunctional_Tcells/preped_data/PD1_neg_D.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+```
+
