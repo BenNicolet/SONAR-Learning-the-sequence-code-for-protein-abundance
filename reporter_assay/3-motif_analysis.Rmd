@@ -1,0 +1,767 @@
+---
+title: "Motif analysis 3'UTR screen T cells"
+author: "Kaspar Bresser"
+output: 
+  github_document:
+    toc: true
+#  html_document: 
+#    theme: simplex
+#    highlight: pygments
+#    code_folding: show
+#    self_contained: TRUE
+#    toc: yes
+#    toc_float:
+#      collapsed: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message=FALSE,
+                      autodep  = TRUE,
+                      cache = FALSE,
+                      fig.width = 7,
+                      fig.asp = 0.618,
+                      fig.align = "center")
+```
+
+
+```{r loading, echo=FALSE}
+library(rstatix)
+library(ggpubr)
+library(scales)
+library(tidyverse)
+library(ggridges)
+library(ggpmisc)
+```
+
+# HEK
+
+```{r}
+aligned <- read_tsv("./Output/RE_013_HEK_normalized.tsv")
+
+aligned
+```
+
+
+## Test for enriched trimers
+
+Get all possible trimers
+
+```{r}
+x <- expand.grid(rep(list(c('A', 'G', 'T', 'C')), 3))
+x <- do.call(paste0, x)
+
+x 
+```
+
+
+Define function that tests for motifs that are significantly enriched or depleted, and extracts their log2 fold changes. 
+
+```{r fig.asp=.8}
+get_stats <- function(seq){
+  
+  aligned %>% 
+    mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+    filter(str_detect(Motif, seq) ) %>% 
+    mutate(seq = seq) %>% 
+    select(log2topVSbot, seq) -> tmp
+    
+  aligned %>% 
+    mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+      mutate(contains.seq = as.factor(case_when(str_detect(Motif, seq) ~ "yes", TRUE ~ "no"))) %>% 
+    wilcox_test(log2topVSbot~contains.seq) %>% 
+    mutate(seq = seq) %>% 
+    inner_join(tmp)
+}
+
+```
+
+Run function for all motifs.
+
+```{r}
+wilcox.seqs <- map_dfr(x, get_stats)
+
+wilcox.seqs
+
+write_tsv(wilcox.seqs, "Output/wilcox_results_trimers_HEK.tsv")
+```
+
+### Visualize
+
+
+```{r}
+get_top <- function(m){
+  data.frame(value = density(m)$x, dens = density(m)$y) %>% 
+    arrange(desc(dens)) %>% 
+    pull(value) -> max.value
+  
+  max.value[[1]]
+}
+```
+
+
+```{r fig.asp=1}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+
+wilcox.seqs %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_HEK_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+Colored by nucleotide count
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_AG_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_AG_HEK_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_CT_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_CT_HEK_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+
+## Test for dimers
+
+
+Get all possible dimers
+
+```{r}
+x <- expand.grid(rep(list(c('A', 'G', 'T', 'C')), 2))
+x <- do.call(paste0, x)
+
+x 
+```
+
+Run get_stats function for all motifs.
+
+```{r}
+wilcox.seqs <- map_dfr(x, get_stats)
+
+wilcox.seqs
+
+write_tsv(wilcox.seqs, "Output/wilcox_results_dimers_HEK.tsv")
+```
+
+### Visualize
+
+
+```{r fig.asp=1}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+
+wilcox.seqs %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_HEK_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ddddff","#9092ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_AG_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ddddff","#9092ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_AG_HEK_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ffd8d8","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_CT_HEK.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ffd8d8","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_CT_HEK_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+## Content analysis
+
+Check occurrence of CT's or TC's and AG's or GA's within the motif
+
+```{r}
+aligned %>% 
+  mutate(CT = as.factor(str_count(Motif, "CT|TC"))) %>% 
+  mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+ggplot(aes(x = CT, y = log2topVSbot, fill = CT))+
+  geom_violin()+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"))+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_CT_TC_HEK.pdf", height = 4, width = 6, scale = 1.2)
+
+
+aligned %>% 
+  mutate(AG = as.factor(str_count(Motif, "AG|GA"))) %>% 
+  mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+ggplot(aes(x = as_factor(AG), y = log2topVSbot, fill = AG))+
+  geom_violin()+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"))+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_AG_GA_HEK.pdf", height = 4, width = 6, scale = 1.2)
+```
+
+Check occurrence of C's or T's and A's or G's within the motif
+
+```{r fig.width=12}
+col.pal <- colorRampPalette(c("#fdf0f0", "#fc3a3a"))(100)[seq(1, 100, length.out = 8)]
+
+aligned %>% 
+  separate(Motif, into = c("oligo", "nr", "Motif")) %>% 
+  mutate(CT = as.factor(str_count(Motif, "C|T"))) %>% 
+  mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+ggplot(aes(x = CT, y = log2topVSbot, fill = CT))+
+  geom_violin(scale = "width")+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = col.pal)+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_C_T_HEK.pdf", height = 4, width = 10, scale = 1.2)
+
+
+
+col.pal <- colorRampPalette(c("#e9e9ff", "#3a3cfc"))(100)[seq(1, 100, length.out = 7)]
+
+aligned %>% 
+  separate(Motif, into = c("oligo", "nr", "Motif")) %>% 
+  mutate(AG = as.factor(str_count(Motif, "A|G"))) %>% 
+  mutate(log2topVSbot = log2(avg.top/avg.bot)) %>% 
+ggplot(aes(x = as_factor(AG), y = log2topVSbot, fill = AG))+
+  geom_violin(scale = "width")+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = col.pal)+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_A_G_HEK.pdf", height = 4, width = 10, scale = 1.2)
+```
+
+
+
+
+
+# HeLa
+
+
+```{r}
+aligned <- read_tsv("./Output/RE_013_HeLa_normalized.tsv")
+
+aligned
+```
+
+
+## Test for enriched trimers
+
+Get all possible trimers
+
+```{r}
+x <- expand.grid(rep(list(c('A', 'G', 'T', 'C')), 3))
+x <- do.call(paste0, x)
+
+x 
+```
+
+
+Define function that tests for motifs that are significantly enriched or depleted, and extracts their log2 fold changes. 
+
+```{r fig.asp=.8}
+get_stats <- function(seq){
+  
+  aligned %>% 
+    mutate(log2topVSbot = log2(HiHi/LoLo)) %>% 
+    filter(str_detect(Motif, seq) ) %>% 
+    mutate(seq = seq) %>% 
+    select(log2topVSbot, seq) -> tmp
+    
+  aligned %>% 
+    mutate(log2topVSbot = log2(HiHi/LoLo)) %>% 
+      mutate(contains.seq = as.factor(case_when(str_detect(Motif, seq) ~ "yes", TRUE ~ "no"))) %>% 
+    wilcox_test(log2topVSbot~contains.seq) %>% 
+    mutate(seq = seq) %>% 
+    inner_join(tmp)
+}
+
+```
+
+Run function for all motifs.
+
+```{r}
+wilcox.seqs <- map_dfr(x, get_stats)
+
+wilcox.seqs
+
+write_tsv(wilcox.seqs, "Output/wilcox_results_trimers_HeLa.tsv")
+```
+
+### Visualize
+
+
+```{r fig.asp=1}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_HeLa.pdf", height = 6, width = 4, scale = 1.2)
+
+
+wilcox.seqs %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_HeLa_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+
+Nucleotide content highlighted
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = factor(str_count(seq, "A|G"), levels = 0:3)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"), drop = F)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_AG_HeLa.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = factor(str_count(seq, "A|G"), levels = 0:3)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"), drop = F)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_AG_HeLa_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = factor(str_count(seq, "C|T"), levels = 0:3)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"), drop = F)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_CT_HeLa.pdf", height = 6, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"), drop = F)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_trimers_CT_HeLa_all.pdf", height = 12, width = 4, scale = 1.2)
+```
+
+
+
+## Test for dimers
+
+
+Get all possible dimers
+
+```{r}
+x <- expand.grid(rep(list(c('A', 'G', 'T', 'C')), 2))
+x <- do.call(paste0, x)
+
+x 
+```
+
+Run get_stats function for all motifs.
+
+```{r}
+wilcox.seqs <- map_dfr(x, get_stats)
+
+wilcox.seqs
+write_tsv(wilcox.seqs, "Output/wilcox_results_dimers_HeLa.tsv")
+```
+
+### Visualize
+
+
+```{r fig.asp=1}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_HeLa.pdf", height = 6, width = 4, scale = 1.2)
+
+
+wilcox.seqs %>% 
+  pull(seq) %>% 
+  unique() %>% 
+  length() -> n.seq
+
+col.pal <- colorRampPalette(c("#fd97e1", "#97e1fd"))(100)[seq(1, 100, length.out = n.seq)]
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top)) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = seq))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = col.pal)+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "none")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_HeLa_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ddddff","#9092ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_AG_HeLa.pdf", height = 4, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "A|G"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ddddff","#9092ff","#3a3cfc"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_AG_HeLa_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+
+```{r fig.asp=1.4, fig.width=6}
+wilcox.seqs %>% 
+  dplyr::filter(p < 0.05) %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ffd8d8","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_CT_HeLa.pdf", height = 4, width = 4, scale = 1.2)
+
+wilcox.seqs %>% 
+  mutate(seq = reorder(seq, -log2topVSbot, FUN = get_top),
+         n.nucleotides = as.factor(str_count(seq, "C|T"))) %>% 
+ggplot(aes(x = log2topVSbot, y = seq, fill = n.nucleotides))+
+  geom_density_ridges(panel_scaling = T, jittered_points = TRUE,  scale = 0.95)+
+  scale_fill_manual(values = c("#ffd8d8","#ff8383","#fc3a3a"))+
+  theme_classic()+
+  theme(panel.grid.major = element_line(), legend.position = "bottom")+
+  geom_vline(xintercept = 0, linetype = "dashed", color = "black")+
+  labs(x = "log2 FC (Top VS Bottom)")
+
+ggsave("./Figs/Ridgeplots_dimers_CT_HeLa_all.pdf", height = 8, width = 4, scale = 1.2)
+```
+
+## Content analysis
+
+Check occurrence of CT's or TC's and AG's or GA's within the motif
+
+```{r}
+aligned %>% 
+  mutate(CT = as.factor(str_count(Motif, "CT|TC"))) %>% 
+  mutate(log2topVSbot = log2(HiHi/LoLo)) %>% 
+ggplot(aes(x = CT, y = log2topVSbot, fill = CT))+
+  geom_violin(scale = "width")+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"))+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_CT_TC_HeLa.pdf", height = 4, width = 6, scale = 1.2)
+
+
+aligned %>% 
+  mutate(AG = as.factor(str_count(Motif, "AG|GA"))) %>% 
+  mutate(log2topVSbot = log2(HiHi/LoLo)) %>%
+ggplot(aes(x = as_factor(AG), y = log2topVSbot, fill = AG))+
+  geom_violin(scale = "width")+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"))+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_AG_GA_HeLa.pdf", height = 4, width = 6, scale = 1.2)
+```
+
+Check occurrence of C's or T's and A's or G's within the motif
+
+```{r fig.width=12}
+col.pal <- colorRampPalette(c("#fdf0f0", "#fc3a3a"))(100)[seq(1, 100, length.out = 8)]
+
+aligned %>% 
+  separate(Motif, into = c("oligo", "nr", "Motif")) %>% 
+  mutate(CT = as.factor(str_count(Motif, "C|T"))) %>% 
+  mutate(log2topVSbot = log2(HiHi/LoLo)) %>% 
+ggplot(aes(x = CT, y = log2topVSbot, fill = CT))+
+  geom_violin()+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = col.pal)+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_C_T_HeLa.pdf", height = 4, width = 10, scale = 1.2)
+
+
+
+
+col.pal <- colorRampPalette(c("#e9e9ff", "#3a3cfc"))(100)[seq(1, 100, length.out = 7)]
+
+aligned %>% 
+  separate(Motif, into = c("oligo", "nr", "Motif")) %>% 
+  mutate(AG = as.factor(str_count(Motif, "A|G"))) %>% 
+  mutate(log2topVSbot = log2(HiHi/LoLo)) %>% 
+ggplot(aes(x = as_factor(AG), y = log2topVSbot, fill = AG))+
+  geom_violin()+
+  geom_jitter(width = 0.2)+
+  scale_fill_manual(values = col.pal)+
+  stat_compare_means(ref.group = "0")+
+  theme_classic()+
+  theme(panel.grid.major.y = element_line(),legend.position="none", plot.title = element_text(hjust = 0.5))
+ggsave("./Figs/Violin_content_A_G_HeLa.pdf", height = 4, width = 10, scale = 1.2)
+```
+

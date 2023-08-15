@@ -1,0 +1,138 @@
+---
+title: "Remove hybrids and pre-processing parallel reporter assay"
+author: "Kaspar Bresser"
+output: 
+  github_document:
+    toc: true
+#  html_document: 
+#    theme: simplex
+#    highlight: pygments
+#    code_folding: show
+#    self_contained: TRUE
+#    toc: yes
+#    toc_float:
+#      collapsed: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message=FALSE,
+                      autodep  = TRUE,
+                      cache = FALSE,
+                      fig.width = 7,
+                      fig.asp = 0.618,
+                      fig.align = "center")
+```
+
+
+```{r loading, echo=FALSE}
+library(scales)
+library(rstatix)
+library(tidyverse)
+```
+
+## Check SAM files
+
+Import SAM files
+
+```{r}
+list.files("./Output/aligned/") %>% 
+  map(~read_tsv(paste0("./Output/aligned/",.), , skip = 469, col_names = F)) %>% 
+  set_names(list.files("./Output/aligned/")) -> tables
+
+
+tables
+```
+
+The reads contain the first 3 motifs of the synthetic UTR.
+
+Define function that splits the motifs into columns and checks if all motifs are identical. 
+
+```{r}
+get_motifs <- function(dat){
+  dat %>% 
+    mutate(read = X10) %>% 
+ #   mutate(read = case_when(str_starts(X10, "T") ~ substring(X10, 2),
+#                            TRUE ~ X10))  %>% 
+    separate_wider_delim(read, "TATATCCGATCAT", names = c("motif1", "motif2"), too_few = "align_start") %>% 
+    separate_wider_delim(motif2, "AACTGTACGCCT", names = c("motif2", "motif3"), too_few = "align_start") %>% 
+    select(X1, X10, motif1, motif2, motif3) %>% 
+    na.omit %>% 
+    mutate(same = (motif1 == motif2 & motif2 == motif3 & motif3 == motif1))
+}
+```
+
+Check the frequency of hybrids
+
+```{r}
+tables %>% 
+  map(get_motifs) %>% 
+  map(pull, same) %>% 
+  map(freq_table)
+```
+
+
+
+Define function to remove hybrids. In this function, instead of requiring exact matches, I allow 1 mismatch in the motifs to allow sequencing errors. This is done using the `adist()` function. 
+
+```{r}
+remove_hybrids <- function(sam.table){
+  sam.table %>% 
+#       mutate(read = case_when(str_starts(X10, "T") ~ substring(X10, 2),
+#                              TRUE ~ X10))  %>% 
+    mutate(read = X10) %>% 
+      separate_wider_delim(read, "TATATCCGATCAT", names = c("motif1", "motif2"), too_few = "align_start") %>% 
+      separate_wider_delim(motif2, "AACTGTACGCCT", names = c("motif2", "motif3"), too_few = "align_start") %>% 
+    na.omit() %>% 
+    mutate(motif = map_chr(str_split(X3, "_"), 3)) %>% 
+    mutate(across(c(motif1, motif2, motif3), ~map2_int(.x, motif, adist) )) %>% 
+    filter(motif1 > 1 | motif2 > 1 | motif3 > 1) %>% 
+    pull(X1) -> hybrids
+  
+  sam.table %>% 
+    filter(!(X1 %in% hybrids)) %>% 
+    na.omit()
+}
+```
+
+Create a directory to put the filtered SAM files, and first transfer the header sections to new files. 
+
+```{r results='hide'}
+dir.create("./Output/aligned/filtered")
+
+list.files("./Output/aligned/", pattern = ".sam" ) %>% 
+  map(~read_lines(paste0("./Output/aligned/",.), n_max = 469)) %>% 
+  map2(list.files("./Output/aligned/", pattern = ".sam" ), 
+       ~write_lines(.x, paste0("./Output/aligned/filtered/filtered_",.y)))
+```
+
+Remove hybrids from the SAM tables and write the lines to the filtered files. 
+
+```{r results='hide'}
+tables %>% 
+  map(remove_hybrids) %>% 
+  map2(list.files("./Output/aligned/filtered/", pattern = ".sam" ), 
+       ~write_tsv(.x, paste0("./Output/aligned/filtered/",.y), append = T, col_names = F))
+```
+
+
+
+Re-check the frequency of hybrids
+
+
+```{r}
+list.files("./Output/aligned/filtered/") %>% 
+  map(~read_tsv(paste0("./Output/aligned/filtered/",.), , skip = 469, col_names = F)) %>% 
+  set_names(list.files("./Output/aligned/filtered/")) -> tables
+
+
+tables
+```
+
+
+```{r}
+tables %>% 
+  map(get_motifs) %>% 
+  map(pull, same) %>% 
+  map(freq_table)
+```
