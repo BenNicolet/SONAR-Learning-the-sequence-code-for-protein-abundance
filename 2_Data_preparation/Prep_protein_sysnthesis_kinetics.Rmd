@@ -1,0 +1,176 @@
+---
+title: "Preparation of CN tables in T cell activation for SONAR"
+author: "Benoit Nicolet"
+date: "27/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("./")
+setwd("./")
+
+
+```
+
+
+
+```{r Protein library import}
+
+Sequence_parameters <- read.delim("./Protein_per_Uniprot_entry_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB_PTM.csv", sep="\t", dec=".")
+#Sequence_parameters$ID <- rownames(Sequence_parameters)
+```
+
+
+
+
+
+# CD4 Activation (Geiger Lab)
+
+```{r CD4 immunomics.ch prep}
+CN_Geiger <- read.delim("./Immunomics_protein_synthesis_kinetics.csv", sep = ",")
+CN_Geiger <- CN_Geiger %>% dplyr::select(-contains("mRNA"))
+
+Uniprot_ref <- read.delim("/home/ben/Analysis/RF_human/sequences/uniprot-filtered-organism Homo+sapiens+(Human)+[9606] +AND+review--.tab")
+
+# Here I merge the annotation of uniprot with the ID from Immunomics.ch
+Uniprot_ref$ID1 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[1])})
+Uniprot_ref$ID2 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[2])})
+Uniprot_ref$ID3 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[3])})
+Uniprot_ref$ID4 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[4])})
+Uniprot_ref$ID5 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[5])})
+# Uniprot_ref$ID6 <- mapply(strsplit(as.character(Uniprot_ref$Gene.names)," "),FUN=function(x){(as.character(x)[6])})
+
+dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID1,])
+dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID2,])
+dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID3,])
+dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID4,])
+dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID5,])
+# dim(CN_Geiger[CN_Geiger$X %in% Uniprot_ref$ID6,])
+
+
+# Here I merge IDs and sequencially replace the missing IDs with infor from the next Uniprot ID ##
+Uniprot_ref$ID[Uniprot_ref$ID1 %in% CN_Geiger$X] <- Uniprot_ref$ID1[Uniprot_ref$ID1 %in% CN_Geiger$X]
+Uniprot_ref$ID <- ifelse(((Uniprot_ref$ID2 %in% CN_Geiger$X)==TRUE & is.na(Uniprot_ref$ID)==TRUE), Uniprot_ref$ID2,Uniprot_ref$ID)
+Uniprot_ref$ID <- ifelse((Uniprot_ref$ID3 %in% CN_Geiger$X)==TRUE & is.na(Uniprot_ref$ID)==TRUE, Uniprot_ref$ID3,Uniprot_ref$ID)
+Uniprot_ref$ID <- ifelse((Uniprot_ref$ID4 %in% CN_Geiger$X)==TRUE & is.na(Uniprot_ref$ID)==TRUE, Uniprot_ref$ID4,Uniprot_ref$ID)
+Uniprot_ref$ID <- ifelse((Uniprot_ref$ID5 %in% CN_Geiger$X)==TRUE & is.na(Uniprot_ref$ID)==TRUE, Uniprot_ref$ID5,Uniprot_ref$ID)
+Uniprot_ref <- Uniprot_ref[!is.na(Uniprot_ref$ID),]
+Uniprot_ref <- data.frame("Entry"=Uniprot_ref$Entry,"ID"=Uniprot_ref$ID)
+Uniprot_ref <- merge(Uniprot_ref,Sequence_parameters,by="Entry")
+
+# Removing duplicates # 
+Uniprot_ref_dups <- Uniprot_ref[duplicated(Uniprot_ref$ID,fromLast = T) |duplicated(Uniprot_ref$ID,fromLast = F),]
+Uniprot_ref <- Uniprot_ref[!(duplicated(Uniprot_ref$ID,fromLast = T) |duplicated(Uniprot_ref$ID,fromLast = F)),]
+
+
+registerDoMC(4) # Here I register a parallel backend for the ddply function below
+Uniprot_ref_dups <- ddply(Uniprot_ref_dups,"ID", numcolwise(mean), .parallel = T, .progress = T)
+Uniprot_ref$Entry <- NULL
+Uniprot_ref <- rbind(Uniprot_ref,Uniprot_ref_dups) # combining things
+
+write.table(Uniprot_ref,"./Sequence_parameters_for_Geiger_data_synthesis_kinectics_14-06-22.csv", sep=";", dec=",", quote = F,row.names = F)
+
+```
+
+
+
+
+```{r merging CN_Geiger and seq param}
+
+CN_Geiger <- merge(CN_Geiger,Uniprot_ref,by.x="X",by.y="ID")
+dim(CN_Geiger) # 6747 7129
+CN_Geiger$row_sums <- rowSums(CN_Geiger[2:5])
+CN_Geiger <- subset(CN_Geiger,CN_Geiger$row_sums>0)
+dim(CN_Geiger) # 4412 7130
+
+
+
+```
+
+
+
+```{r Synthesis at rest}
+
+Synthesis_rest <- data.frame("ID"=CN_Geiger$X,"CN"=CN_Geiger$Protein.Resting.log2.N.min.)
+colnames(Synthesis_rest)[1:2] <- c("ID","log2N_per_min")
+dim(Synthesis_rest) # 2919
+
+write.table(Synthesis_rest,"./Synthesis_rest_Log2_per_min_with_zeros.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+Synthesis_rest <- subset(Synthesis_rest,Synthesis_rest$log2N_per_min>0)
+dim(Synthesis_rest) # 2919
+
+write.table(Synthesis_rest,"./Synthesis_rest_Log2_per_min.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 6h}
+
+Synthesis_6h <- CN_Geiger[,c(1,3)]
+colnames(Synthesis_6h)[1:2] <- c("ID","log2N_per_min")
+dim(Synthesis_6h) # 4412
+
+write.table(Synthesis_6h,"./Synthesis_Act_6h_Log2_per_min_with_zeros.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+
+Synthesis_6h <- subset(Synthesis_6h,Synthesis_6h$log2N_per_min>0)
+dim(Synthesis_6h) # 1623
+
+write.table(Synthesis_6h,"./Synthesis_Act_6h_Log2_per_min.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 12h}
+
+Synthesis_12h <- CN_Geiger[,c(1,4)]
+colnames(Synthesis_12h)[1:2] <- c("ID","log2N_per_min")
+dim(Synthesis_12h) # 2782 
+
+write.table(Synthesis_12h,"./Synthesis_Act_12h_Log2_per_min_with_zeros.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+
+Synthesis_12h <- subset(Synthesis_12h,Synthesis_12h$log2N_per_min>0)
+dim(Synthesis_12h) # 2782 
+
+write.table(Synthesis_12h,"./Synthesis_Act_12h_Log2_per_min.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r CD4 Tn 24h}
+
+Synthesis_24h <- CN_Geiger[,c(1,5)]
+colnames(Synthesis_24h)[1:2] <- c("ID","log2N_per_min")
+dim(Synthesis_24h) # 3900
+write.table(Synthesis_24h,"./Synthesis_Act_24h_Log2_per_min_with_zeros.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+Synthesis_24h <- subset(Synthesis_24h,Synthesis_24h$log2N_per_min>0)
+dim(Synthesis_24h) # 3900
+
+write.table(Synthesis_24h,"./Synthesis_Act_24h_Log2_per_min.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
