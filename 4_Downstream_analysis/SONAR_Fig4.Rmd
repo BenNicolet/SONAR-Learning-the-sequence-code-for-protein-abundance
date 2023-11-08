@@ -1,0 +1,823 @@
+---
+title: "SONAR - Fig 4"
+output: html_document
+date: "2023-08-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(plyr)
+library(dplyr)
+library(stats)
+library(stringdist)
+library(stringr)
+library(coRdon)
+library(Biostrings)
+library(reshape2)
+library(ggplot2)
+library(ggridges)
+library(viridis)
+library(circlize)
+library(ggpointdensity)
+# devtools::install_github("BioinfoHR/coRdon")
+
+setwd("./")
+
+```
+
+
+
+
+```{r importing data}
+
+# screen data #
+MPRA_data <- read.delim("./RE_011_norm_filt_table.tsv",sep="")
+MPRA_data$Motif <- gsub("oligo_[0-9][0-9][0-9]_","",MPRA_data$Motif)
+
+# Feature importance
+FI_immune <- read.delim("./Gamma=1_feature_importance_CN_immune_cell_replicates.csv", sep=";")
+FI_immune[1:2] <- FI_immune[2:1]
+colnames(FI_immune)[1:2] <- colnames(FI_immune)[2:1]
+dim(FI_immune)
+
+# Here I format the feature importance to have 1 as lowest possible feature importnace (0 in log10)
+FI_immune$K562_3 <- NULL
+FI_immune[2:101] <- log10(FI_immune[2:101])
+FI_immune <- do.call(data.frame,lapply(FI_immune,function(x) replace(x, is.infinite(x),NA)))
+FI_immune[is.na(FI_immune)]=min(FI_immune[2:101],na.rm = T)
+FI_immune[2:101] <- FI_immune[2:101] - min(FI_immune[2:101])
+
+# I will only look at 3'UTR SFs, so I isolate the 3'UTR features
+FI_immune$region <- "Other"
+FI_immune$region[grep("UTR3", FI_immune$ID)] <- "UTR3"
+FI_immune_UTR3 <- subset(FI_immune, FI_immune$region=="UTR3")
+FI_immune_UTR3_avg <- FI_immune_UTR3
+FI_immune_UTR3_avg$avg_varImp <- rowMeans(FI_immune_UTR3_avg[2:101])
+FI_immune_UTR3_avg[2:102] <- NULL
+
+```
+
+
+```{r motif analysis}
+
+FI_immune_UTR3_avg$Motif <- gsub("_UTR3","",FI_immune_UTR3_avg$ID)
+FI_immune_UTR3_avg$length <- str_count(FI_immune_UTR3_avg$Motif, pattern = "")
+FI_immune_UTR3_avg <- subset(FI_immune_UTR3_avg, FI_immune_UTR3_avg$length==5 | FI_immune_UTR3_avg$length==6)
+
+
+```
+
+
+
+```{r single nt content in 5/6mers}
+
+# Here I look at the nt content of 5/6 mers and their relation with feature importance
+
+FI_immune_UTR3_avg_singlets <- FI_immune_UTR3_avg[2:3]
+
+FI_immune_UTR3_avg_singlets$As <- str_count(FI_immune_UTR3_avg_singlets$Motif, pattern = "A")
+FI_immune_UTR3_avg_singlets$Ts <- str_count(FI_immune_UTR3_avg_singlets$Motif, pattern = "T")
+FI_immune_UTR3_avg_singlets$Gs <- str_count(FI_immune_UTR3_avg_singlets$Motif, pattern = "G")
+FI_immune_UTR3_avg_singlets$Cs <- str_count(FI_immune_UTR3_avg_singlets$Motif, pattern = "C")
+
+FI_immune_UTR3_avg_singlets_melted <- melt(FI_immune_UTR3_avg_singlets)
+FI_immune_UTR3_avg_singlets_melted <- merge(FI_immune_UTR3_avg_singlets_melted,FI_immune_UTR3_avg_singlets_melted[FI_immune_UTR3_avg_singlets_melted$variable=="avg_varImp",-2],by="Motif")
+FI_immune_UTR3_avg_singlets_melted <- FI_immune_UTR3_avg_singlets_melted[FI_immune_UTR3_avg_singlets_melted$variable!="avg_varImp",]
+colnames(FI_immune_UTR3_avg_singlets_melted) <- c("Motif", "group", "content", "varImp")
+
+ggplot(FI_immune_UTR3_avg_singlets_melted,aes(x=as.numeric(varImp), y=as.factor(group), group=group))+
+  geom_density_ridges(size=0.1,quantile_lines = TRUE, quantiles=4)+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+ggplot(FI_immune_UTR3_avg_singlets_melted,aes(y=as.numeric(varImp), x=as.factor(group), group=group))+
+  geom_point(position = "jitter", stroke=0)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width =0.7, color="red",position = position_dodge(preserve = "total",width = 0.8))+
+  theme_minimal()+
+  theme(aspect.ratio = 3)
+
+ggplot(FI_immune_UTR3_avg_singlets_melted,aes(y=varImp, x=content, group=group))+
+  geom_point(position = "jitter", stroke=0)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width =0.7, color="red",position = position_dodge(preserve = "total",width = 0.8))+
+  facet_wrap(facets = .~group,nrow = 1)+
+  geom_hline(yintercept = median(FI_immune_UTR3_avg_singlets_melted[FI_immune_UTR3_avg_singlets_melted$group=="As" & FI_immune_UTR3_avg_singlets_melted$content==0,]$varImp), linetype="dotted")+
+  theme_minimal()+
+  theme(aspect.ratio = 2)
+
+
+
+```
+
+
+
+```{r single nt content in 5/6mers}
+
+# Same but with doublets of nt
+FI_immune_UTR3_avg_doublets <- FI_immune_UTR3_avg[2:3]
+doublets <- c("AA","AC","AG","AT","CA","CC","CG","CT","GA","GC","GG","GT","TA","TC","TG","TT")
+
+doublet_table <- list()
+for(i in 1:16) {
+  doublet_table[[i]] <- str_count(FI_immune_UTR3_avg_doublets$Motif, pattern = doublets[i])
+}
+
+doublet_table <- data.frame(do.call(cbind, doublet_table))
+colnames(doublet_table) <- doublets
+
+doublet_table[doublet_table>0]="yes"
+doublet_table[doublet_table==0]="no"
+
+FI_immune_UTR3_avg_doublets <- cbind(FI_immune_UTR3_avg_doublets,doublet_table)
+
+
+FI_immune_UTR3_avg_doublets_melted <- melt(FI_immune_UTR3_avg_doublets,id.vars = "Motif")
+
+table(FI_immune_UTR3_avg_doublets_melted$variable)
+
+FI_immune_UTR3_avg_doublets_imp_only <- FI_immune_UTR3_avg_doublets_melted[FI_immune_UTR3_avg_doublets_melted$variable=="avg_varImp",]
+FI_immune_UTR3_avg_doublets_imp_only$variable <- NULL
+colnames(FI_immune_UTR3_avg_doublets_imp_only)[2] <- "varImp"
+
+FI_immune_UTR3_avg_doublets_melted <- FI_immune_UTR3_avg_doublets_melted[FI_immune_UTR3_avg_doublets_melted$variable!="avg_varImp",]
+
+FI_immune_UTR3_avg_doublets_melted <- merge(FI_immune_UTR3_avg_doublets_melted,FI_immune_UTR3_avg_doublets_imp_only, by="Motif")
+FI_immune_UTR3_avg_doublets_melted <- FI_immune_UTR3_avg_doublets_melted[FI_immune_UTR3_avg_doublets_melted$value=="yes",]
+FI_immune_UTR3_avg_doublets_melted$varImp <- as.numeric(FI_immune_UTR3_avg_doublets_melted$varImp)
+
+FI_immune_UTR3_avg_doublets_melted$As <- str_count(FI_immune_UTR3_avg_doublets_melted$variable, pattern = "A")
+FI_immune_UTR3_avg_doublets_melted$Ts <- str_count(FI_immune_UTR3_avg_doublets_melted$variable, pattern = "T")
+FI_immune_UTR3_avg_doublets_melted$Gs <- str_count(FI_immune_UTR3_avg_doublets_melted$variable, pattern = "G")
+FI_immune_UTR3_avg_doublets_melted$Cs <- str_count(FI_immune_UTR3_avg_doublets_melted$variable, pattern = "C")
+
+FI_immune_UTR3_avg_doublets_melted$CT <- FI_immune_UTR3_avg_doublets_melted$Cs + FI_immune_UTR3_avg_doublets_melted$Ts
+FI_immune_UTR3_avg_doublets_melted$AG <- FI_immune_UTR3_avg_doublets_melted$As + FI_immune_UTR3_avg_doublets_melted$Gs
+
+ggplot(FI_immune_UTR3_avg_doublets_melted, aes(x=varImp, y=reorder(variable, varImp, median, decreasing=T)))+
+  geom_density_ridges(aes(fill=as.factor(CT)),size=0.1,quantile_lines = TRUE, quantiles=2)+
+  scale_fill_manual(values = c("#ffd8d8","#ff8383","#fc3a3a"))+
+  xlab("Feature importance")+
+  ylab("doublets (median ordered)")+
+  scale_x_continuous(expand = c(0,0), limits = c(4,7.5))+
+  geom_vline(xintercept = median(FI_immune_UTR3_avg_doublets_melted[FI_immune_UTR3_avg_doublets_melted$variable=="TT",]$varImp), linetype="dotted")+
+  theme_minimal()+
+  theme(aspect.ratio = 3, axis.text.y = element_text(size=5))
+
+
+ggplot(FI_immune_UTR3_avg_doublets_melted, aes(x=varImp, y=reorder(variable, varImp, median, decreasing=T)))+
+  geom_density_ridges(aes(fill=as.factor(AG)),size=0.1,quantile_lines = TRUE, quantiles=2)+
+  scale_fill_manual(values = c("#ddddff","#9092ff","#3a3cfc"))+
+  geom_vline(xintercept = median(FI_immune_UTR3_avg_doublets_melted[FI_immune_UTR3_avg_doublets_melted$variable=="TT",]$varImp), linetype="dotted")+
+  xlab("Feature importance")+
+  ylab("doublets (median ordered)")+
+  scale_x_continuous(expand = c(0,0), limits = c(4,7.5))+
+  theme_minimal()+
+  theme(aspect.ratio = 3, axis.text.y = element_text(size=5))
+
+
+
+```
+
+
+
+```{r triplets}
+# Sampe but with triplets of nt 
+
+triplets <- coRdon::codonCounts(coRdon::codonTable(DNAStringSet(FI_immune_UTR3_avg$Motif)))
+triplets <- data.frame(triplets)
+codons <- colnames(triplets)
+
+triplet_table <- list()
+for(i in 1:64) {
+  triplet_table[[i]] <- str_count(FI_immune_UTR3_avg$Motif, pattern = codons[i])
+}
+
+triplet_table <- data.frame(do.call(cbind, triplet_table))
+colnames(triplet_table) <- codons
+
+triplet_table[triplet_table>0]="yes"
+triplet_table[triplet_table==0]="no"
+
+
+FI_immune_UTR3_avg_triplets <- cbind(FI_immune_UTR3_avg,triplet_table)
+FI_immune_UTR3_avg_triplets$ID <- NULL
+
+FI_immune_UTR3_avg_melted <- melt(FI_immune_UTR3_avg_triplets,id.vars = "Motif")
+
+table(FI_immune_UTR3_avg_melted$variable)
+
+FI_immune_UTR3_avg_imp_only <- FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable=="avg_varImp",]
+FI_immune_UTR3_avg_imp_only$variable <- NULL
+colnames(FI_immune_UTR3_avg_imp_only)[2] <- "varImp"
+
+
+FI_immune_UTR3_avg_melted <- FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable!="length",]
+FI_immune_UTR3_avg_melted <- FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable!="avg_varImp",]
+
+FI_immune_UTR3_avg_melted <- merge(FI_immune_UTR3_avg_melted,FI_immune_UTR3_avg_imp_only, by="Motif")
+FI_immune_UTR3_avg_melted <- FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$value=="yes",]
+FI_immune_UTR3_avg_melted$varImp <- as.numeric(FI_immune_UTR3_avg_melted$varImp)
+
+FI_immune_UTR3_avg_melted$As <- str_count(FI_immune_UTR3_avg_melted$variable, pattern = "A")
+FI_immune_UTR3_avg_melted$Ts <- str_count(FI_immune_UTR3_avg_melted$variable, pattern = "T")
+FI_immune_UTR3_avg_melted$Gs <- str_count(FI_immune_UTR3_avg_melted$variable, pattern = "G")
+FI_immune_UTR3_avg_melted$Cs <- str_count(FI_immune_UTR3_avg_melted$variable, pattern = "C")
+
+FI_immune_UTR3_avg_melted$CT <- FI_immune_UTR3_avg_melted$Cs + FI_immune_UTR3_avg_melted$Ts
+FI_immune_UTR3_avg_melted$AG <- FI_immune_UTR3_avg_melted$As + FI_immune_UTR3_avg_melted$Gs
+
+
+ggplot(FI_immune_UTR3_avg_melted, aes(x=varImp, y=reorder(variable, varImp, median, decreasing=T)))+
+  geom_density_ridges(aes(fill=as.factor(Ts)),size=0.1,quantile_lines = TRUE, quantiles=2)+
+  scale_fill_manual(values = c("#fdf0f0","#ffc9c9","#ff8383","#fc3a3a"))+
+  xlab("Feature importance")+
+  ylab("triplets (median ordered)")+
+  scale_x_continuous(expand = c(0,0), limits = c(4,7.5))+
+  geom_vline(xintercept = median(FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable=="CTG",]$varImp), linetype="dotted")+
+  theme_minimal()+
+  theme(aspect.ratio = 3, axis.text.y = element_text(size=5))
+
+
+ggplot(FI_immune_UTR3_avg_melted, aes(x=varImp, y=reorder(variable, varImp, median, decreasing=T)))+
+  geom_density_ridges(aes(fill=as.factor(Gs)),size=0.1,quantile_lines = TRUE, quantiles=2)+
+  scale_fill_manual(values = c("#e9e9ff","#b3b4fe","#7779ff","#3a3cfc"))+
+  xlab("Feature importance")+
+  ylab("triplets (median ordered)")+
+  scale_x_continuous(expand = c(0,0), limits = c(4,7.5))+
+  geom_vline(xintercept = median(FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable=="CTG",]$varImp), linetype="dotted")+
+  theme_minimal()+
+  theme(aspect.ratio = 3, axis.text.y = element_text(size=5))
+
+
+
+table(FI_immune_UTR3_avg_melted$variable)
+
+median(FI_immune_UTR3_avg_melted[FI_immune_UTR3_avg_melted$variable=="CTG",]$varImp)
+
+
+
+triplet_summary <- tapply(FI_immune_UTR3_avg_melted$varImp, FI_immune_UTR3_avg_melted$variable,
+  function(x) format(summary(x), scientific = F))
+triplet_summary <- data.frame(do.call(rbind,triplet_summary))[3]
+triplet_summary$Motif <- rownames(triplet_summary)
+triplet_summary <- triplet_summary[order(triplet_summary$Median,decreasing = F),]
+
+triplet_summary$As <- str_count(triplet_summary$Motif, pattern = "A")
+triplet_summary$Cs <- str_count(triplet_summary$Motif, pattern = "C")
+triplet_summary$Gs <- str_count(triplet_summary$Motif, pattern = "G")
+triplet_summary$Ts <- str_count(triplet_summary$Motif, pattern = "T")
+
+triplet_summary$CT <- triplet_summary$Cs + triplet_summary$Ts
+triplet_summary$AG <- triplet_summary$As + triplet_summary$Gs
+
+
+# col_fun= circlize::colorRamp2(c(0, 2, 3), c("#FFFFFF","#D96651","#67001F"))
+col_fun_green= circlize::colorRamp2(c(0,1, 2, 3), c("#f1fdf1","#9cd19c","#55a755","#056d00"))
+# col_fun_blue= circlize::colorRamp2(c(0,1, 2, 3), c("#eff2fe","#98a2cc","#4d5ea9","#001b94"))
+col_fun_blue= circlize::colorRamp2(c(0, 2, 3), c("#ffffff","#9092ff","#3a3cfc"))
+col_fun_black= circlize::colorRamp2(c(0,1, 2, 3), c("#f3f3f3","#bcbcbc","#757575","#444444"))
+# col_fun_red= circlize::colorRamp2(c(0,1, 2, 3), c("#faecec","#e9a3a3","#c35656","#8a0000"))
+col_fun_red= circlize::colorRamp2(c(0, 2, 3), c("#ffffff","#ff8383","#fc3a3a"))
+
+# "#ddddff","#9092ff","#3a3cfc"
+
+pheatmap::pheatmap(triplet_summary[3:6], col_fun_green(seq(0,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+
+pheatmap::pheatmap(triplet_summary[3:6], col_fun_blue(seq(0,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+pheatmap::pheatmap(triplet_summary[3:6], col_fun_black(seq(0,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+pheatmap::pheatmap(triplet_summary[3:6], col_fun_red(seq(0,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+
+
+
+pheatmap::pheatmap(triplet_summary[7:8], col_fun_blue(seq(-1,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+pheatmap::pheatmap(triplet_summary[7:8], col_fun_red(seq(-1,3,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0)
+
+
+
+
+# A green
+# C blues
+# G black 
+# T red
+
+
+
+```
+
+
+
+## screen data combined analysis tryout ## 
+
+```{r importing and formatting}
+
+MPRA_data <- read.delim("./combined_dat.tsv")
+MPRA_data_HEK <- MPRA_data[MPRA_data$cell.type=="HEK",-1]
+# MPRA_data_HeLa <- MPRA_data[MPRA_data$cell.type=="HeLa",-1]
+MPRA_data_CD4 <- MPRA_data[MPRA_data$cell.type=="CD4",-1]
+MPRA_data_CD8 <- MPRA_data[MPRA_data$cell.type=="CD8",-1]
+
+colnames(MPRA_data_HEK)[2] <- "LFC_HEK"
+# colnames(MPRA_data_HeLa)[2] <- "LFC_HeLa"
+colnames(MPRA_data_CD4)[2] <- "LFC_CD4"
+colnames(MPRA_data_CD8)[2] <- "LFC_CD8"
+
+MPRA_data_df <- join_all(list(MPRA_data_HEK,MPRA_data_CD4,MPRA_data_CD8), by="Motif") # ,MPRA_data_HeLa
+
+MPRA_data_df$Motif <- gsub("oligo_[0-9][0-9][0-9]_","",MPRA_data_df$Motif)
+
+MPRA_data_df[is.na(MPRA_data_df)]=0
+
+write.table(MPRA_data_df,"./Data_S7_MPRA_scaled_data_wide_format.csv", row.names = F, sep=";", dec=",")
+
+MPRA_data_df_strong <- subset(MPRA_data_df, 
+                              abs(MPRA_data_df$LFC_HEK)>3|
+                              # abs(MPRA_data_df$LFC_HeLa)>3|
+                              abs(MPRA_data_df$LFC_CD8)>3|
+                              abs(MPRA_data_df$LFC_CD4)>3)
+
+MPRA_data_df_strong_common <- subset(MPRA_data_df, 
+                              abs(MPRA_data_df$LFC_HEK)>1&
+                              abs(MPRA_data_df$LFC_CD8)>1&
+                              abs(MPRA_data_df$LFC_CD4)>1)
+
+
+dim(MPRA_data_df)
+dim(MPRA_data_df_strong)
+dim(MPRA_data_df_strong_common)
+
+col_fun_hm = colorRamp2(c(-2, -1, 0, 1, 2), c("#053061","#579EC9","#FFFFFF","#D96651","#67001F"))
+
+pheatmap::pheatmap(MPRA_data_df_strong_common[2:4], col_fun_hm(seq(-2.3,2,by=0.01)),
+                   cluster_rows = T, cluster_cols = F, clustering_distance_rows = "canberra",
+                   labels_row = MPRA_data_df_strong$Motif, fontsize_row = 4,
+                   cellwidth = 10, border_color = 0)
+
+pheatmap::pheatmap(MPRA_data_df_strong[2:4], col_fun_hm(seq(-1.3,1,by=0.01)),
+                   cluster_rows = T, cluster_cols = F, clustering_distance_rows = "euclidean",
+                   labels_row = MPRA_data_df_strong$Motif, fontsize_row = 2,
+                   cellwidth = 10, border_color = 0)
+
+kmeans_MPRA <- cbind("kmean_cluster"=(pheatmap::pheatmap(MPRA_data_df_strong[2:4], clustering_distance_rows = "euclidean",kmeans_k = 4,clustering_method = "complete"))$kmeans$cluster, MPRA_data_df_strong)
+
+#'ward', 'ward.D', 'ward.D2', 'single', 'complete', 'average', 'mcquitty', 'median' or 'centroid'
+kmeans_MPRA <- kmeans_MPRA[order(kmeans_MPRA$kmean_cluster),]
+
+pheatmap::pheatmap(kmeans_MPRA[3:5], col_fun_hm(seq(-1.6,1.5,by=0.01)),
+                   cluster_rows = F, cluster_cols = F,
+                   labels_row = kmeans_MPRA$Motif, fontsize_row = 2,
+                   cellwidth = 10, border_color = 0, 
+                   gaps_row = cumsum(as.vector(table(kmeans_MPRA$kmean_cluster))))
+
+write.table(kmeans_MPRA,"./kmeans_MPRA_k4_complete.tsv",sep = "\t",row.names = F)
+
+
+
+## making a CT-AG HM ## 
+
+kmeans_MPRA$CT <- str_count(kmeans_MPRA$Motif, pattern = "C") + str_count(kmeans_MPRA$Motif, pattern = "T")
+kmeans_MPRA$AG <- str_count(kmeans_MPRA$Motif, pattern = "A") + str_count(kmeans_MPRA$Motif, pattern = "G")
+
+col_fun_blue= circlize::colorRamp2(c(0, 3, 4), c("#ffffff","#9092ff","#3a3cfc"))
+col_fun_red= circlize::colorRamp2(c(0, 3, 4), c("#ffffff","#ff8383","#fc3a3a"))
+
+pheatmap::pheatmap(kmeans_MPRA[6:7], col_fun_blue(seq(-1,4,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 0.0001, cellwidth = 10, border_color = 0, 
+                   gaps_row = cumsum(as.vector(table(kmeans_MPRA$kmean_cluster))))
+
+pheatmap::pheatmap(kmeans_MPRA[6:7], col_fun_red(seq(-1,4,by=0.1)),
+                   cluster_rows = F, cluster_cols = F,
+                   fontsize_row = 5, cellwidth = 10, border_color = 0, 
+                   gaps_row = cumsum(as.vector(table(kmeans_MPRA$kmean_cluster))))
+
+
+col_fun_hm = colorRamp2(c(-2, -1, 0, 1, 2), c("#0c8400","#8cd585","#FFFFFF","#b463a9","#7a006a"))
+
+pheatmap::pheatmap(kmeans_MPRA[3:5], col_fun_hm(seq(-2,1.8,by=0.01)),
+                   cluster_rows = F, cluster_cols = F,
+                   labels_row = kmeans_MPRA$Motif, fontsize_row = 2,
+                   cellwidth = 10, border_color = 0, 
+                   gaps_row = cumsum(as.vector(table(kmeans_MPRA$kmean_cluster))))
+
+pheatmap::pheatmap(kmeans_MPRA[3:5], 
+                   color = viridis(n = 512, alpha = 1, begin = 0, end = 1, option = "viridis"),
+                   cluster_rows = F, cluster_cols = F,
+                   labels_row = kmeans_MPRA$Motif, fontsize_row = 2,
+                   cellwidth = 10, border_color = 0, 
+                   gaps_row = cumsum(as.vector(table(kmeans_MPRA$kmean_cluster))))
+```
+
+
+
+```{r encoding the nt content in MPRA_data_df}
+
+# MPRA_data_df
+MPRA_data_df$As <- str_count(MPRA_data_df$Motif, pattern = "A")
+MPRA_data_df$Ts <- str_count(MPRA_data_df$Motif, pattern = "T")
+MPRA_data_df$Gs <- str_count(MPRA_data_df$Motif, pattern = "G")
+MPRA_data_df$Cs <- str_count(MPRA_data_df$Motif, pattern = "C")
+
+MPRA_data_df$CT <- MPRA_data_df$Cs + MPRA_data_df$Ts
+MPRA_data_df$AG <- MPRA_data_df$As + MPRA_data_df$Gs
+
+```
+
+
+```{r LFC-LFC plots}
+
+ggplot(MPRA_data_df, aes(x=LFC_CD4, y=LFC_CD8))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+  
+  scale_y_continuous(limits = c(-10,10), expand = c(0,0))+
+  scale_x_continuous(limits = c(-10,10), expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+ggplot(MPRA_data_df, aes(x=LFC_HEK, y=LFC_CD4))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+  
+  scale_y_continuous(limits = c(-10,10), expand = c(0,0))+
+  scale_x_continuous(limits = c(-5.5,5.5), expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+ggplot(MPRA_data_df, aes(x=LFC_HEK, y=LFC_CD8))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+  
+  scale_y_continuous(limits = c(-10,10), expand = c(0,0))+
+  scale_x_continuous(limits = c(-5.5,5.5), expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+
+
+
+```
+
+
+
+
+```{r comparing SFs between CD4 and CD8}
+
+Tcell_FI <- NULL
+Tcell_FI$ID <- FI_immune$ID
+Tcell_FI$CD4Tn <- rowMeans(FI_immune[2:5])
+Tcell_FI$CD4Tcm <- rowMeans(FI_immune[6:9])
+Tcell_FI$CD8Tn <- rowMeans(FI_immune[18:21])
+Tcell_FI$CD8Tcm <- rowMeans(FI_immune[22:25])
+Tcell_FI <- data.frame(Tcell_FI)
+Tcell_FI$avg_FI <- rowMeans(Tcell_FI[2:5])
+
+Tcell_FI_UTR5 <- Tcell_FI[grepl("UTR5",Tcell_FI$ID),]
+Tcell_FI_CDS <- Tcell_FI[grepl("CDS",Tcell_FI$ID),]
+Tcell_FI_UTR3 <- Tcell_FI[grepl("UTR3",Tcell_FI$ID),]
+Tcell_FI_else <- Tcell_FI[!grepl("UTR5",Tcell_FI$ID) & !grepl("CDS",Tcell_FI$ID) & !grepl("UTR3",Tcell_FI$ID),]
+
+## total ##
+
+
+Tcell_FI_total <- Tcell_FI
+Tcell_FI_total$highlight <- NA 
+Tcell_FI_total$highlight <- ifelse(((grepl("CCT",Tcell_FI_total$ID) | 
+                                     grepl("CTT",Tcell_FI_total$ID) |
+                                     grepl("TCT",Tcell_FI_total$ID) |
+                                     grepl("TCC",Tcell_FI_total$ID) |
+                                     grepl("TTC",Tcell_FI_total$ID)) &
+                                     Tcell_FI_total$avg_FI>2),
+                                     yes="CT-rich",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse(((grepl("CCG",Tcell_FI_total$ID) | 
+                                     grepl("CGG",Tcell_FI_total$ID) |
+                                     grepl("GCG",Tcell_FI_total$ID) |
+                                     grepl("GCC",Tcell_FI_total$ID) |
+                                     grepl("GGC",Tcell_FI_total$ID)) &
+                                     grepl("UTR5",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>2),
+                                     yes="GC-rich 5UTR",
+                                     no=Tcell_FI_total$highlight) #GC
+
+Tcell_FI_total$highlight <- ifelse(((grepl("ATTT",Tcell_FI_total$ID) | 
+                                     grepl("TTTA",Tcell_FI_total$ID)) &
+                                     grepl("UTR3",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="AU-rich 3UTR",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse(((grepl("ATAA",Tcell_FI_total$ID) | 
+                                     grepl("AATA",Tcell_FI_total$ID)) &
+                                     grepl("UTR3",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="PAS",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse((grepl("GC_percentage",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="GC%",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse((grepl("count",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="PTM",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse(((grepl("m1A",Tcell_FI_total$ID) |
+                                     grepl("m5C",Tcell_FI_total$ID) |
+                                     grepl("m6A",Tcell_FI_total$ID) |
+                                     grepl("m7G",Tcell_FI_total$ID) )&
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="RNA mod",
+                                     no=Tcell_FI_total$highlight)
+
+Tcell_FI_total$highlight <- ifelse((grepl("codon",Tcell_FI_total$ID) &
+                                     Tcell_FI_total$avg_FI>1),
+                                     yes="codon",
+                                     no=Tcell_FI_total$highlight)
+
+
+# 
+# ggplot(Tcell_FI_total, aes(x=CD4Tn, y=CD8Tn, color= highlight))+
+#   geom_hline(yintercept = 0)+
+#   geom_vline(xintercept = 0)+
+#   geom_point(alpha=0.1, stroke=0, color="black", data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==TRUE,])+
+#   geom_point(alpha=1, stroke=0,size =2, data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==FALSE,])+
+#   scale_colour_brewer(palette = "Dark2")+ #Dark2
+#   geom_abline(slope = 1)+
+#   scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+#   scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+#   theme_minimal()+
+#   theme(aspect.ratio = 1)
+
+
+ggplot(Tcell_FI_total, aes(x=CD4Tn, y=CD8Tn, color= highlight))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_point(alpha=0.1, stroke=0, color="black", data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==TRUE,])+
+  geom_point(alpha=1, stroke=0,size =2, data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==FALSE,])+
+  scale_colour_brewer(palette = "Set1")+ #Dark2
+  geom_abline(slope = 1)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+# 
+# ggplot(Tcell_FI_total, aes(x=CD4Tn, y=CD8Tn, color= highlight))+
+#   geom_hline(yintercept = 0)+
+#   geom_vline(xintercept = 0)+
+#   geom_point(alpha=0.1, stroke=0, color="black", data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==TRUE,])+
+#   geom_point(alpha=1, stroke=0,size =2, data = Tcell_FI_total[is.na(Tcell_FI_total$highlight)==FALSE,])+
+#   scale_colour_brewer(palette = "Set3")+ #Dark2
+#   geom_abline(slope = 1)+
+#   scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+#   scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+#   theme_minimal()+
+#   theme(aspect.ratio = 1)
+
+
+# highlight #
+
+# CT UTR5
+# CT CDS
+# CT UTR3
+# GC UTR5
+# AU UTR3
+# ATAA UTR3
+# GC 
+
+
+# PTM
+# codon
+# m6A / m7G
+
+
+```
+
+
+
+```{r }
+
+## 5UTR ##
+ggplot(Tcell_FI_UTR5, aes(x=CD4Tn, y=CD8Tn))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+
+  geom_abline(slope = 1)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+  
+  ggrepel::geom_text_repel(
+    data=Tcell_FI_UTR5[(grepl("TC",Tcell_FI_UTR5$ID)|grepl("CT",Tcell_FI_UTR5$ID)) & Tcell_FI_UTR5$CD4Tn>1.7 & Tcell_FI_UTR5$CD8Tn>1.7,],
+    aes(label=ID), min.segment.length = 0.000001, nudge_x = 1, force = 20, max.overlaps = 30)+
+  
+  geom_point(data=Tcell_FI_UTR5[(grepl("TC",Tcell_FI_UTR5$ID)|grepl("CT",Tcell_FI_UTR5$ID))  & Tcell_FI_UTR5$CD4Tn>1.7 & Tcell_FI_UTR5$CD8Tn>1.7 ,], color="red")+
+  # geom_point(data=Tcell_FI[(grepl("AATAA",Tcell_FI$ID)|grepl("ATTTA",Tcell_FI$ID)) & grepl("UTR3",Tcell_FI$ID) & Tcell_FI$CD4Tn>1,], color="blue")+
+  # geom_point(data=Tcell_FI[grepl("count",Tcell_FI$ID)  & Tcell_FI$CD4Tn>2.5 ,],color="purple")+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+## CDS ##
+ggplot(Tcell_FI_CDS, aes(x=CD4Tn, y=CD8Tn))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+
+  geom_abline(slope = 1)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+  
+  ggrepel::geom_text_repel(
+    data=Tcell_FI_CDS[(grepl("TC",Tcell_FI_CDS$ID)|grepl("CT",Tcell_FI_CDS$ID)) & Tcell_FI_CDS$CD4Tn>2.5 & Tcell_FI_CDS$CD8Tn>2.5,],
+    aes(label=ID), min.segment.length = 0.000001, nudge_x = 1, force = 20, max.overlaps = 30)+
+  
+  geom_point(data=Tcell_FI_CDS[(grepl("TC",Tcell_FI_CDS$ID)|grepl("CT",Tcell_FI_CDS$ID))  & Tcell_FI_CDS$CD4Tn>2.5 & Tcell_FI_CDS$CD8Tn>2.5 ,], color="red")+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+## 3UTR ##
+
+ggplot(Tcell_FI_UTR3, aes(x=CD4Tn, y=CD8Tn))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+
+  geom_abline(slope = 1)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+  
+  ggrepel::geom_text_repel(
+    data=Tcell_FI_UTR3[(grepl("TC",Tcell_FI_UTR3$ID)|grepl("ATTTA",Tcell_FI_UTR3$ID)) & Tcell_FI_UTR3$CD4Tn>1 & Tcell_FI_UTR3$CD8Tn>1,],
+    aes(label=ID), min.segment.length = 0.000001, nudge_x = 1, force = 20, max.overlaps = 30)+
+  geom_point(data=Tcell_FI_UTR3[(grepl("AATAA",Tcell_FI_UTR3$ID)|grepl("ATTTA",Tcell_FI_UTR3$ID)) & grepl("UTR3",Tcell_FI_UTR3$ID) & Tcell_FI$CD4Tn>1,], color="blue")+
+  # geom_point(data=Tcell_FI[grepl("count",Tcell_FI$ID)  & Tcell_FI$CD4Tn>2.5 ,],color="purple")+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+## Else ##
+
+
+ggplot(Tcell_FI_else, aes(x=CD4Tn, y=CD8Tn))+
+  geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0)+
+  geom_pointdensity()+
+  scale_color_viridis(option = "G")+
+  geom_abline(slope = 1)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  scale_x_continuous(limits = c(0,5), expand = c(0,0))+
+  
+  ggrepel::geom_text_repel(
+    data=Tcell_FI_else[Tcell_FI_else$CD4Tn>2 | Tcell_FI_else$CD8Tn>2,],
+    aes(label=ID), min.segment.length = 0.000001, nudge_y = -1, force = 20, max.overlaps = 30)+
+  
+  geom_point(data=Tcell_FI_else[Tcell_FI_else$CD4Tn>2 | Tcell_FI_else$CD8Tn>2,], color="red")+
+  # geom_point(data=Tcell_FI[(grepl("AATAA",Tcell_FI$ID)|grepl("ATTTA",Tcell_FI$ID)) & grepl("UTR3",Tcell_FI$ID) & Tcell_FI$CD4Tn>1,], color="blue")+
+  # geom_point(data=Tcell_FI[grepl("count",Tcell_FI$ID)  & Tcell_FI$CD4Tn>2.5 ,],color="purple")+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+```
+
+
+
+
+```{r ranking SF CN models in 5UTR}
+FI_immune_avg <- data.frame("ID"=FI_immune$ID, "region"= FI_immune$region, "avg_var_imp"=rowMeans(FI_immune[2:101]))
+
+FI_immune_avg_5UTR <- subset(FI_immune_avg,FI_immune_avg$region=="UTR5")
+
+FI_immune_avg_5UTR <- FI_immune_avg_5UTR[order(FI_immune_avg_5UTR$avg_var_imp,decreasing = T),]
+FI_immune_avg_5UTR$avg_var_imp <- 10^FI_immune_avg_5UTR$avg_var_imp
+FI_immune_avg_5UTR$cumSum <- cumsum(FI_immune_avg_5UTR$avg_var_imp)
+FI_immune_avg_5UTR$rank <- 1:length(FI_immune_avg_5UTR$avg_var_imp)
+FI_immune_avg_5UTR$cumSum_perc <- FI_immune_avg_5UTR$cumSum/max(FI_immune_avg_5UTR$cumSum)*100
+FI_immune_avg_5UTR$avg_var_imp <- log10(FI_immune_avg_5UTR$avg_var_imp)
+
+ggplot(FI_immune_avg_5UTR, aes(x=cumSum_perc,y=avg_var_imp))+
+  geom_point(size=1, stroke=0)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  ggrepel::geom_text_repel(data = FI_immune_avg_5UTR[FI_immune_avg_5UTR$rank<5,], aes(label=ID), min.segment.length = 0, nudge_y = 1, nudge_x = 10, size=3)+
+  ggrepel::geom_text_repel(data = FI_immune_avg_5UTR[(grepl("CT",FI_immune_avg_5UTR$ID)|grepl("TC",FI_immune_avg_5UTR$ID)) & FI_immune_avg_5UTR$rank<50,], aes(label=ID), min.segment.length = 0, nudge_x = 10, size=3, max.overlaps = 30,force=100)+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+```
+
+
+
+
+```{r ranking SF CN models in CDS}
+FI_immune_avg <- data.frame("ID"=FI_immune$ID, "region"= FI_immune$region, "avg_var_imp"=rowMeans(FI_immune[2:101]))
+
+FI_immune_avg_CDS <- subset(FI_immune_avg,FI_immune_avg$region=="CDS")
+
+FI_immune_avg_CDS <- FI_immune_avg_CDS[order(FI_immune_avg_CDS$avg_var_imp,decreasing = T),]
+FI_immune_avg_CDS$avg_var_imp <- 10^FI_immune_avg_CDS$avg_var_imp
+FI_immune_avg_CDS$cumSum <- cumsum(FI_immune_avg_CDS$avg_var_imp)
+FI_immune_avg_CDS$rank <- 1:length(FI_immune_avg_CDS$avg_var_imp)
+FI_immune_avg_CDS$cumSum_perc <- FI_immune_avg_CDS$cumSum/max(FI_immune_avg_CDS$cumSum)*100
+FI_immune_avg_CDS$avg_var_imp <- log10(FI_immune_avg_CDS$avg_var_imp)
+
+ggplot(FI_immune_avg_CDS, aes(x=cumSum_perc,y=avg_var_imp))+
+  geom_point(size=1, stroke=0)+
+  geom_point(data = FI_immune_avg_CDS[grepl("codon",FI_immune_avg_CDS$ID),],size=1, stroke=0, color="red")+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  ggrepel::geom_text_repel(data = FI_immune_avg_CDS[!grepl("codon",FI_immune_avg_CDS$ID) & !grepl("codon",FI_immune_avg_CDS$ID) & FI_immune_avg_CDS$rank<10,], aes(label=ID), min.segment.length = 0.00001, nudge_y = 0, nudge_x = 10, size=3, force = 10, max.overlaps = 100)+
+  ggrepel::geom_text_repel(data = FI_immune_avg_CDS[grepl("m6",FI_immune_avg_CDS$ID) & FI_immune_avg_CDS$rank<100,], aes(label=ID), min.segment.length = 0, nudge_y = -1.5, nudge_x = 1, size=3, force = 10)+
+  ggrepel::geom_text_repel(data = FI_immune_avg_CDS[grepl("CCT",FI_immune_avg_CDS$ID) & FI_immune_avg_CDS$rank<100,], aes(label=ID), min.segment.length = 0, nudge_y = -1.5, nudge_x = 1, size=3, force = 10)+
+  ggrepel::geom_text_repel(data = FI_immune_avg_CDS[grepl("CTT",FI_immune_avg_CDS$ID) & FI_immune_avg_CDS$rank<100,], aes(label=ID), min.segment.length = 0, nudge_y = -1.5, nudge_x = 1, size=3, force = 10)+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+```
+
+
+
+```{r ranking SF CN models in 3UTR}
+FI_immune_avg <- data.frame("ID"=FI_immune$ID, "region"= FI_immune$region, "avg_var_imp"=rowMeans(FI_immune[2:101]))
+
+FI_immune_avg_3UTR <- subset(FI_immune_avg,FI_immune_avg$region=="UTR3")
+
+FI_immune_avg_3UTR <- FI_immune_avg_3UTR[order(FI_immune_avg_3UTR$avg_var_imp,decreasing = T),]
+FI_immune_avg_3UTR$avg_var_imp <- 10^FI_immune_avg_3UTR$avg_var_imp
+FI_immune_avg_3UTR$cumSum <- cumsum(FI_immune_avg_3UTR$avg_var_imp)
+FI_immune_avg_3UTR$rank <- 1:length(FI_immune_avg_3UTR$avg_var_imp)
+FI_immune_avg_3UTR$cumSum_perc <- FI_immune_avg_3UTR$cumSum/max(FI_immune_avg_3UTR$cumSum)*100
+FI_immune_avg_3UTR$avg_var_imp <- log10(FI_immune_avg_3UTR$avg_var_imp)
+
+ggplot(FI_immune_avg_3UTR, aes(x=cumSum_perc,y=avg_var_imp))+
+  geom_point(size=1, stroke=0)+
+  # geom_point(alpha=1, size=1, stroke=0, color="red", data = FI_immune_avg_3UTR[(grepl("CT",FI_immune_avg_3UTR$ID) | grepl("TC",FI_immune_avg_3UTR$ID))& FI_immune_avg_3UTR$rank<100,])+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  ggrepel::geom_text_repel(data = FI_immune_avg_3UTR[(grepl("ATA",FI_immune_avg_3UTR$ID) |grepl("ATT",FI_immune_avg_3UTR$ID)) & FI_immune_avg_3UTR$rank<50,], aes(label=ID), min.segment.length = 0, nudge_y = -1, nudge_x = 10, size=3,max.overlaps = 30)+
+    ggrepel::geom_text_repel(data = FI_immune_avg_3UTR[FI_immune_avg_3UTR$rank<4,], aes(label=ID), min.segment.length = 0, nudge_y = 1, nudge_x = 20, size=3, force = 30,max.overlaps = 20)+
+  ggrepel::geom_text_repel(data = FI_immune_avg_3UTR[(grepl("CT",FI_immune_avg_3UTR$ID) | grepl("TC",FI_immune_avg_3UTR$ID)) & FI_immune_avg_3UTR$rank<50,], aes(label=ID), min.segment.length = 0, nudge_y = 1, nudge_x = 50, size=3, force = 10,max.overlaps = 20)+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+```
+
+
+
+```{r ranking SF CN models in 3UTR}
+FI_immune_avg <- data.frame("ID"=FI_immune$ID, "region"= FI_immune$region, "avg_var_imp"=rowMeans(FI_immune[2:101]))
+FI_immune_avg_else <- FI_immune_avg[!grepl("UTR5",FI_immune_avg$ID) & !grepl("CDS",FI_immune_avg$ID) & !grepl("UTR3",FI_immune_avg$ID),]
+
+
+FI_immune_avg_else <- FI_immune_avg_else[order(FI_immune_avg_else$avg_var_imp,decreasing = T),]
+FI_immune_avg_else$avg_var_imp <- 10^FI_immune_avg_else$avg_var_imp
+FI_immune_avg_else$cumSum <- cumsum(FI_immune_avg_else$avg_var_imp)
+FI_immune_avg_else$rank <- 1:length(FI_immune_avg_else$avg_var_imp)
+FI_immune_avg_else$cumSum_perc <- FI_immune_avg_else$cumSum/max(FI_immune_avg_else$cumSum)*100
+FI_immune_avg_else$avg_var_imp <- log10(FI_immune_avg_else$avg_var_imp)
+
+ggplot(FI_immune_avg_else, aes(x=cumSum_perc,y=avg_var_imp))+
+  geom_point(size=1, stroke=0)+
+  scale_y_continuous(limits = c(0,5), expand = c(0,0))+
+  ggrepel::geom_text_repel(data = FI_immune_avg_else[FI_immune_avg_else$rank<12,], aes(label=ID), min.segment.length = 0, size=3,max.overlaps = 30, force=30)+
+  theme_minimal()+
+  theme(aspect.ratio = 1)
+
+
+
+```
+
+
+
