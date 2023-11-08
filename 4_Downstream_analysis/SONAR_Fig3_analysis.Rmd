@@ -1,0 +1,434 @@
+---
+title: "multi-model integration"
+author: "Benoit Nicolet"
+date: "15/06/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+#install.packages("pheatmap")
+
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(circlize)
+library(pheatmap)
+library(caret)
+library(reshape)
+library(ggpointdensity)
+library(viridis)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("./")
+setwd("./")
+
+```
+
+## Importing models
+
+```{r importing RNA models}
+
+RNA_Tn_0h <- readRDS("./models/xgb_1000nrounds_TPM_Tn_0h_15_10_2021.RDS")
+RNA_Tn_6h <- readRDS("./models/xgb_1000nrounds_TPM_Tn_6h_15_10_2021.RDS")
+RNA_Tn_24h <- readRDS("./models/xgb_1000nrounds_TPM_Tn_24h_15_10_2021.RDS")
+
+RNA_Tn_0h<- data.frame(varImp(RNA_Tn_0h,scale=F)$importance)
+RNA_Tn_6h<- data.frame(varImp(RNA_Tn_6h,scale=F)$importance)
+RNA_Tn_24h<- data.frame(varImp(RNA_Tn_24h,scale=F)$importance)
+
+colnames(RNA_Tn_0h)[1] <- "RNA_Tn_0h"
+colnames(RNA_Tn_6h)[1] <- "RNA_Tn_6h"
+colnames(RNA_Tn_24h)[1] <- "RNA_Tn_24h"
+
+RNA_Tn_0h$ID <- rownames(RNA_Tn_0h)
+RNA_Tn_6h$ID <- rownames(RNA_Tn_6h)
+RNA_Tn_24h$ID <- rownames(RNA_Tn_24h)
+
+RNA_act_models <- list(RNA_Tn_0h,RNA_Tn_6h,RNA_Tn_24h)
+
+RNA_act_models <- join_all(RNA_act_models,by = "ID")
+RNA_act_models[1:2] <- RNA_act_models[2:1]
+colnames(RNA_act_models)[1:2] <- colnames(RNA_act_models)[2:1]
+dim(RNA_act_models)
+
+
+RNA_act_models[2:4] <- log10(RNA_act_models[2:4])
+RNA_act_models <- do.call(data.frame,lapply(RNA_act_models,function(x) replace(x, is.infinite(x),NA)))
+RNA_act_models[is.na(RNA_act_models)]=min(RNA_act_models[2:4],na.rm = T)
+RNA_act_models[2:4] <- RNA_act_models[2:4] - min(RNA_act_models[2:4])
+
+RNA_act_models$RNA_avg_imp <- rowMeans(RNA_act_models[2:4])
+#RNA_act_models <- data.frame("ID"=RNA_act_models$ID, "RNA_avg_imp"=RNA_act_models$RNA_avg_imp)
+
+```
+
+
+
+
+```{r importing CN models}
+
+CN_Tn_0h <- readRDS("./models/xgb_CN_Tn_0h_10k_15_10_2021.RDS")
+CN_Tn_6h <- readRDS("./models/xgb_CN_Tn_6h_10k_15_10_2021.RDS")
+CN_Tn_12h <- readRDS("./models/xgb_CN_Tn_12h_10k_15_10_2021.RDS")
+CN_Tn_24h <- readRDS("./models/xgb_CN_Tn_24h_10k_15_10_2021.RDS")
+CN_Tn_48h <- readRDS("./models/xgb_CN_Tn_48h_10k_15_10_2021.RDS")
+
+CN_Tn_0h<- data.frame(varImp(CN_Tn_0h,scale=F)$importance)
+CN_Tn_6h<- data.frame(varImp(CN_Tn_6h,scale=F)$importance)
+CN_Tn_12h<- data.frame(varImp(CN_Tn_12h,scale=F)$importance)
+CN_Tn_24h<- data.frame(varImp(CN_Tn_24h,scale=F)$importance)
+CN_Tn_48h<- data.frame(varImp(CN_Tn_48h,scale=F)$importance)
+
+CN_Tn_0h$ID <- rownames(CN_Tn_0h)
+CN_Tn_6h$ID <- rownames(CN_Tn_6h)
+CN_Tn_12h$ID <- rownames(CN_Tn_12h)
+CN_Tn_24h$ID <- rownames(CN_Tn_24h)
+CN_Tn_48h$ID <- rownames(CN_Tn_48h)
+
+colnames(CN_Tn_0h)[1] <- "CN_Tn_0h"
+colnames(CN_Tn_6h)[1] <- "CN_Tn_6h"
+colnames(CN_Tn_12h)[1] <- "CN_Tn_12h"
+colnames(CN_Tn_24h)[1] <- "CN_Tn_24h"
+colnames(CN_Tn_48h)[1] <- "CN_Tn_48h"
+
+CN_act_models <- list(CN_Tn_0h,CN_Tn_6h,CN_Tn_12h,CN_Tn_24h,CN_Tn_48h)
+
+CN_act_models <- join_all(CN_act_models,by = "ID")
+CN_act_models[1:2] <- CN_act_models[2:1]
+colnames(CN_act_models)[1:2] <- colnames(CN_act_models)[2:1]
+dim(CN_act_models)
+
+
+CN_act_models[2:6] <- log10(CN_act_models[2:6])
+CN_act_models <- do.call(data.frame,lapply(CN_act_models,function(x) replace(x, is.infinite(x),NA)))
+CN_act_models[is.na(CN_act_models)]=min(CN_act_models[2:6],na.rm = T)
+CN_act_models[2:6] <- CN_act_models[2:6] - min(CN_act_models[2:6])
+
+
+CN_act_models$CN_avg_imp <- rowMeans(CN_act_models[2:6])
+# CN_act_models <- data.frame("ID"=CN_act_models$ID, "CN_avg_imp"=CN_act_models$CN_avg_imp)
+
+
+```
+
+
+
+
+```{r importing synthesis models}
+
+Synth_Tn_0h <- readRDS("./synthesis/models/xgb_Synthesis_rest_10k_14_06_2022.RDS")
+Synth_Tn_6h <- readRDS("./synthesis/models/xgb_Synthesis_6h_10k_14_06_2022.RDS")
+Synth_Tn_12h <- readRDS("./synthesis/models/xgb_Synthesis_12h_10k_14_06_2022.RDS")
+Synth_Tn_24h <- readRDS("./synthesis/models/xgb_Synthesis_24h_10k_14_06_2022.RDS")
+
+Synth_Tn_0h<- data.frame(varImp(Synth_Tn_0h,scale=F)$importance)
+Synth_Tn_6h<- data.frame(varImp(Synth_Tn_6h,scale=F)$importance)
+Synth_Tn_12h<- data.frame(varImp(Synth_Tn_12h,scale=F)$importance)
+Synth_Tn_24h<- data.frame(varImp(Synth_Tn_24h,scale=F)$importance)
+
+Synth_Tn_0h$ID <- rownames(Synth_Tn_0h)
+Synth_Tn_6h$ID <- rownames(Synth_Tn_6h)
+Synth_Tn_12h$ID <- rownames(Synth_Tn_12h)
+Synth_Tn_24h$ID <- rownames(Synth_Tn_24h)
+
+colnames(Synth_Tn_0h)[1] <- "Synth_Tn_0h"
+colnames(Synth_Tn_6h)[1] <- "Synth_Tn_6h"
+colnames(Synth_Tn_12h)[1] <- "Synth_Tn_12h"
+colnames(Synth_Tn_24h)[1] <- "Synth_Tn_24h"
+
+Synth_act_models <- list(Synth_Tn_0h,Synth_Tn_6h,Synth_Tn_12h,Synth_Tn_24h)
+
+Synth_act_models <- join_all(Synth_act_models,by = "ID")
+Synth_act_models[1:2] <- Synth_act_models[2:1]
+colnames(Synth_act_models)[1:2] <- colnames(Synth_act_models)[2:1]
+dim(Synth_act_models)
+
+
+Synth_act_models[2:5] <- log10(Synth_act_models[2:5])
+Synth_act_models <- do.call(data.frame,lapply(Synth_act_models,function(x) replace(x, is.infinite(x),NA)))
+Synth_act_models[is.na(Synth_act_models)]=min(Synth_act_models[2:5],na.rm = T)
+Synth_act_models[2:5] <- Synth_act_models[2:5] - min(Synth_act_models[2:5])
+
+
+Synth_act_models$synth_avg_imp <- rowMeans(Synth_act_models[2:5])
+# Synth_act_models <- data.frame("ID"=Synth_act_models$ID, "CN_avg_imp"=Synth_act_models$CN_avg_imp)
+
+
+```
+
+
+
+
+```{r model integration}
+
+Model_Act_var_imp <- list(RNA_act_models,Synth_act_models,CN_act_models)
+Model_Act_var_imp <- join_all(Model_Act_var_imp,by="ID")
+
+Model_Act_var_imp_avg <- data.frame("ID"= Model_Act_var_imp$ID,
+                                  "RNA_avg_imp"= Model_Act_var_imp$RNA_avg_imp,
+                                  "synth_avg_imp"= Model_Act_var_imp$synth_avg_imp,
+                                  "CN_avg_imp"= Model_Act_var_imp$CN_avg_imp)
+# Model_Act_var_imp_changes <- Model_Act_var_imp
+# 
+# Model_Act_var_imp_changes[is.na(Model_Act_var_imp_changes)]= -15
+# 
+# Model_Act_var_imp_changes <- base::subset(Model_Act_var_imp_changes,(Model_Act_var_imp_changes$RNA_avg_imp>=-5|Model_Act_var_imp_changes$CN_avg_imp>=-5 | Model_Act_var_imp_changes$TE_avg_imp>=-5))
+
+
+col_fun = colorRamp2(c(-3, 0, 3), c("#FFFFFF","#1E8449","#000000")) # green
+
+pheatmap(Model_Act_var_imp_avg[1:100,2:4], col_fun(seq(-3,3,by=0.01)) ,scale = "none",
+         clustering_distance_cols = "correlation", cluster_cols = F, cluster_rows = T,
+         labels_col=colnames(Model_Act_var_imp_avg[2:4]), fontsize_row=5,na_col = "#515a5a", 
+         border_color = "black", clustering_distance_rows ="manhattan",
+         labels_row =Model_Act_var_imp_avg$ID,cellwidth = 20)
+
+
+write.table(Model_Act_var_imp,"./synthesis/Data_S4_CD4_multi_model_integration.csv", sep=";", dec = ",",row.names = F)
+
+```
+
+
+```{r kmeans}
+
+set.seed(1234567)
+Kmeans_models <- pheatmap(Model_Act_var_imp_changes[5:7], col_fun(seq(-4,3,by=0.01)) ,scale = "none",
+         clustering_distance_cols = "correlation", cluster_cols = F, cluster_rows = T,
+         labels_col=colnames(Model_Act_var_imp_changes[5:7]), fontsize_row=6,na_col = "#515a5a", 
+         border_color = "black", clustering_distance_rows ="canberra",clustering_method = "centroid",
+         labels_row =Model_Act_var_imp_changes$ID,cellwidth = 20, kmeans_k = 8)
+
+
+Model_Act_var_imp_changes$clusters <- Kmeans_models$kmeans$cluster
+dim(Model_Act_var_imp_changes)
+table(Model_Act_var_imp_changes$clusters)
+
+Model_Act_var_imp_changes <- Model_Act_var_imp_changes[order(Model_Act_var_imp_changes$clusters,decreasing = F),]
+
+
+annot_rows <- data.frame("clusters"=Model_Act_var_imp_changes$clusters)
+rownames(annot_rows) <- Model_Act_var_imp_changes$ID
+
+rownames(Model_Act_var_imp_changes) <- Model_Act_var_imp_changes$ID
+
+pheatmap(Model_Act_var_imp_changes[5:7], col_fun(seq(-4,3,by=0.01)) ,scale = "none",
+         clustering_distance_cols = "correlation", cluster_cols = F, cluster_rows = F,
+         labels_col=colnames(Model_Act_var_imp_changes[5:7]), fontsize_row=0.0001,na_col = "#515a5a", 
+         border_color = "black", clustering_distance_rows ="canberra",clustering_method = "centroid",
+         labels_row =Model_Act_var_imp_changes$ID,cellwidth = 20,gaps_row = c(535,572,663,1783,2101,2845,3262,3393),
+         annotation_row = annot_rows)
+ 
+
+#write.table(Model_Act_var_imp_changes,"~/Analysis/RF_human/integration/Multi_Model_Act_var_imp_changes_with_clusters.csv", sep = ";",dec = ",", row.names = F, quote = F)
+
+
+#'ward', 'ward.D', 'ward.D2', 'single', 'complete', 'average', 'mcquitty', 'median', 'centroid'
+
+Model_Act_var_imp_changes$group <- "other"
+Model_Act_var_imp_changes$group[grep("UTR5",Model_Act_var_imp_changes$ID)] <- "UTR5"
+Model_Act_var_imp_changes$group[grep("CDS",Model_Act_var_imp_changes$ID)] <- "CDS"
+Model_Act_var_imp_changes$group[grep("UTR3",Model_Act_var_imp_changes$ID)] <- "UTR3"
+
+region_representation_multi_models <- data.frame(cbind(data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==1])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==1,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==2])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==2,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==3])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==3,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==4])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==4,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==5])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==5,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==6])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==6,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==7])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==7,])[1]*100))$Freq,
+data.frame(t(table(Model_Act_var_imp_changes$group[Model_Act_var_imp_changes$clusters==8])/dim(Model_Act_var_imp_changes[Model_Act_var_imp_changes$clusters==8,])[1]*100))$Freq))
+
+region_representation_multi_models$X3 <- c(38.46154,0,19.78022,41.75824) # Here I correct the error introduced by having 0 in "other" for group 3. Which ends up not being divided.
+
+#region_representation_multi_models$region <- c("CDS","other","UTR3","UTR5")
+#region_representation_multi_models <- cbind(region_representation_multi_models[9], region_representation_multi_models[1:8])
+region_representation_multi_models <- data.frame(t(region_representation_multi_models))
+colnames(region_representation_multi_models) <- c("CDS","other","UTR3","UTR5")
+region_representation_multi_models$cluster <- c(1,2,3,4,5,6,7,8)
+
+region_representation_multi_models_melt <- melt(t(region_representation_multi_models))
+
+region_representation_multi_models_melt <- subset(region_representation_multi_models_melt,
+                                                  !region_representation_multi_models_melt$X1=="cluster")
+
+region_representation_multi_models_melt$X2 <- gsub("X","",region_representation_multi_models_melt$X2)
+
+ggplot(region_representation_multi_models_melt[region_representation_multi_models_melt$X2<5,],aes(x=X1 ,y=value))+
+  geom_col()+
+  scale_x_discrete(limits = c("UTR5","CDS","UTR3","other"))+
+  theme_classic()+
+  theme(aspect.ratio = 1)+
+  facet_wrap(facets = "X2",ncol = 2)
+
+
+ggplot(region_representation_multi_models_melt[region_representation_multi_models_melt$X2>4,],aes(x=X1 ,y=value))+
+  geom_col()+
+  scale_x_discrete(limits = c("UTR5","CDS","UTR3","other"))+
+  theme_classic()+
+  theme(aspect.ratio = 1)+
+  facet_wrap(facets = "X2",ncol = 2)
+
+
+```
+
+
+
+```{r comparison between models}
+# 
+# Model_Act_var_imp_changes$RNA_avg_imp_median_corr <- Model_Act_var_imp_changes$RNA_avg_imp - median(Model_Act_var_imp_changes$RNA_avg_imp,na.rm = T)
+# Model_Act_var_imp_changes$TE_avg_imp_median_corr <- Model_Act_var_imp_changes$TE_avg_imp - median(Model_Act_var_imp_changes$TE_avg_imp,na.rm = T)
+# Model_Act_var_imp_changes$CN_avg_imp_median_corr <- Model_Act_var_imp_changes$CN_avg_imp - median(Model_Act_var_imp_changes$CN_avg_imp,na.rm = T)
+
+
+Model_Act_var_imp_avg$LFC_RNA_TE <- Model_Act_var_imp_avg$synth_avg_imp - Model_Act_var_imp_avg$RNA_avg_imp
+Model_Act_var_imp_avg$LFC_RNA_CN <- Model_Act_var_imp_avg$CN_avg_imp - Model_Act_var_imp_avg$RNA_avg_imp
+Model_Act_var_imp_avg$LFC_CN_TE <- Model_Act_var_imp_avg$synth_avg_imp - Model_Act_var_imp_avg$CN
+
+
+log10(2) # 0.301
+
+
+ggplot(Model_Act_var_imp_avg[Model_Act_var_imp_avg$synth_avg_imp>0,],aes(x=RNA_avg_imp,y=synth_avg_imp, color=abs(LFC_RNA_TE)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",direction = 1)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-0.3,0.3),linetype="dotted", color="blue")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_TE)> 0.3 & (Model_Act_var_imp_avg$synth_avg_imp>7),],
+                           aes(label=ID), nudge_x = -5, nudge_y = 1, color="black", size=3,min.segment.length = 0.000001)+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_TE)< -1.2 & (Model_Act_var_imp_avg$RNA_avg_imp>8.5),],
+                           aes(label=ID), nudge_x = 5, nudge_y = -5, color="black", size=3,min.segment.length = 0.000001)+
+  scale_x_continuous(limits = c(0,10), expand = c(0,0))+
+  scale_y_continuous(limits = c(0,10), expand = c(0,0))+
+  theme(aspect.ratio = 1)
+
+
+
+
+
+ggplot(Model_Act_var_imp_avg[Model_Act_var_imp_avg$synth_avg_imp>0,],aes(x=CN_avg_imp,y=synth_avg_imp, color=abs(LFC_CN_TE)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",direction = 1)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-0.3,0.3),linetype="dotted", color="blue")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)> 0.3 & (Model_Act_var_imp_avg$synth_avg_imp>7),],
+                           aes(label=ID), nudge_x = -5, nudge_y = 1, color="black", size=3,min.segment.length = 0.000001)+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)< -0.3 & (Model_Act_var_imp_avg$CN_avg_imp>8),],
+                           aes(label=ID), nudge_x = 10, nudge_y = -5, color="black", size=3,min.segment.length = 0.000001)+
+  scale_x_continuous(limits = c(0,10), expand = c(0,0))+
+  scale_y_continuous(limits = c(0,10), expand = c(0,0))+
+  theme(aspect.ratio = 1)
+
+
+
+
+
+
+ggplot(Model_Act_var_imp_avg[Model_Act_var_imp_avg$RNA_avg_imp>0,],aes(y=CN_avg_imp,x=RNA_avg_imp, color=abs(LFC_RNA_CN)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",direction = 1)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-0.3,0.3),linetype="dotted", color="blue")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)> 0.3 & (Model_Act_var_imp_avg$CN_avg_imp>7),],
+                           aes(label=ID), nudge_x = -5, nudge_y = 0, color="black", size=3,min.segment.length = 0.000001)+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)< -0.6 & (Model_Act_var_imp_avg$RNA_avg_imp>8.5),],
+                           aes(label=ID), nudge_x = 10, nudge_y = -5, color="black", size=3,min.segment.length = 0.000001)+
+  scale_x_continuous(limits = c(0,10), expand = c(0,0))+
+  scale_y_continuous(limits = c(0,10), expand = c(0,0))+
+  theme(aspect.ratio = 1)
+
+
+```
+
+
+```{r}
+ggplot(Model_Act_var_imp_avg,aes(x=RNA_avg_imp,y=CN_avg_imp, color=abs(LFC_RNA_CN)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F")+
+  geom_abline(slope = 1)+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)>1 & ( Model_Act_var_imp_avg$CN_avg_imp>2),], aes(label=ID), nudge_x = -10, nudge_y = 0, color="black")+
+    ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)< -1 & (Model_Act_var_imp_avg$RNA_avg_imp>4)|Model_Act_var_imp_avg$ID=="total_m6A",], aes(label=ID), nudge_x = 10, nudge_y = -4, color="black")+
+  scale_x_continuous(limits = c(-15,8))+
+  scale_y_continuous(limits = c(-15,8))+
+  theme(aspect.ratio = 1)
+
+
+ggplot(Model_Act_var_imp_avg,aes(x=TE_avg_imp,y=CN_avg_imp, color=abs(LFC_CN_TE)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F")+
+  geom_abline(slope = 1)+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)>1 & ( Model_Act_var_imp_avg$CN_avg_imp>2),], aes(label=ID), nudge_x = -10, nudge_y = 0, color="black")+
+    ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)< -1 & (Model_Act_var_imp_avg$TE_avg_imp>4)|Model_Act_var_imp_avg$ID=="total_m6A",], aes(label=ID), nudge_x = 10, nudge_y = -4, color="black")+
+  scale_x_continuous(limits = c(-15,8))+
+  scale_y_continuous(limits = c(-15,8))+
+  theme(aspect.ratio = 1)
+
+
+```
+
+
+
+```{r }
+
+
+ggplot(Model_Act_var_imp_avg,aes(x=RNA_avg_imp_median_corr,y=TE_avg_imp_median_corr, color=abs(LFC_RNA_TE)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",direction = 1, begin = 0.1)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-1,1), linetype="dashed")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_TE)>1 & ( Model_Act_var_imp_avg$TE_avg_imp_median_corr>3) & !grepl("codon",Model_Act_var_imp_avg$ID) &  !grepl("amino",Model_Act_var_imp_avg$ID),], aes(label=ID), nudge_x = -10, nudge_y = 0, color="black")+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_TE)< -2.5 & (Model_Act_var_imp_avg$RNA_avg_imp_median_corr>5),], aes(label=ID), nudge_x = 10, nudge_y = -4, color="black")+
+  scale_x_continuous(limits = c(-10,12))+
+  scale_y_continuous(limits = c(-10,12))+
+  theme(aspect.ratio = 1)
+
+
+ggplot(Model_Act_var_imp_avg,aes(x=RNA_avg_imp_median_corr,y=CN_avg_imp_median_corr, color=abs(LFC_RNA_CN)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",begin = 0.1)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-1,1), linetype="dashed")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)>0.5 & ( Model_Act_var_imp_avg$CN_avg_imp>1.5),], aes(label=ID), nudge_x = -10, nudge_y = 0, color="black")+
+    ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_RNA_CN)< -0.5 & (Model_Act_var_imp_avg$RNA_avg_imp>3.1),], aes(label=ID), nudge_x = 10, nudge_y = -4, color="black")+
+  scale_x_continuous(limits = c(-10,10))+
+  scale_y_continuous(limits = c(-10,10))+
+  theme(aspect.ratio = 1)
+
+ggplot(Model_Act_var_imp_avg,aes(x=TE_avg_imp_median_corr,y=CN_avg_imp_median_corr, color=abs(LFC_CN_TE)))+
+  #geom_pointdensity(show.legend = F, size=1, stroke=0)+
+  geom_point()+
+  scale_color_viridis(option = "F",begin = 0.15)+
+  geom_abline(slope = 1)+
+  geom_abline(slope = 1,intercept = c(-1,1), linetype="dashed")+
+  theme_minimal()+
+  ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)< -1 & ( Model_Act_var_imp_avg$CN_avg_imp>2.5),], aes(label=ID), nudge_x = -10, nudge_y = 0, color="black")+
+    ggrepel::geom_text_repel(data=Model_Act_var_imp_avg[(Model_Act_var_imp_avg$LFC_CN_TE)>1 & (Model_Act_var_imp_avg$TE_avg_imp>4.2),], aes(label=ID), nudge_x = 10, nudge_y = -4, color="black")+
+  scale_x_continuous(limits = c(-10,10))+
+  scale_y_continuous(limits = c(-10,10))+
+  theme(aspect.ratio = 1)
+
+
+
+```
+
+
+
+
+
