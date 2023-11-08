@@ -1,0 +1,354 @@
+---
+title: "Preparation of TPM tables for RF in T cell susbsets"
+author: "Benoit Nicolet"
+date: "27/01/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+# devtools::install_version("rlang", version= "1.0.2")
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/immune_system/Replicates_separate/")
+setwd("/home/ben/Analysis/RF_human/immune_system/Replicates_separate/")
+
+
+```
+
+
+```{r BiomaRt}
+## Biomart ##
+ensembl <- useEnsembl(biomart="ensembl",dataset="hsapiens_gene_ensembl", host = "https://apr2018.archive.ensembl.org")
+
+tx2gene <- getBM(attributes=c("ensembl_transcript_id_version","ensembl_transcript_id","external_gene_name","gene_biotype"), mart = ensembl)
+tx2gene <- subset(tx2gene,tx2gene$gene_biotype=="protein_coding")
+
+```
+
+
+```{r importing quants}
+CD4_Tn1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_1_ERR431571/quant.sf")
+CD4_Tn2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_2_ERR431574/quant.sf")
+CD4_Tn3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_3_ERR431580/quant.sf")
+CD4_Tn4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_4_ERR431581/quant.sf")
+CD4_Tn5 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tn_5_ERR431610/quant.sf")
+CD4_Tn1 <- data.frame("ID"=CD4_Tn1$Name,"CD4_Tn1_TPM"=CD4_Tn1$TPM)
+CD4_Tn2 <- data.frame("ID"=CD4_Tn2$Name,"CD4_Tn2_TPM"=CD4_Tn2$TPM)
+CD4_Tn3 <- data.frame("ID"=CD4_Tn3$Name,"CD4_Tn3_TPM"=CD4_Tn3$TPM)
+CD4_Tn4 <- data.frame("ID"=CD4_Tn4$Name,"CD4_Tn4_TPM"=CD4_Tn4$TPM)
+CD4_Tn5 <- data.frame("ID"=CD4_Tn5$Name,"CD4_Tn5_TPM"=CD4_Tn5$TPM)
+
+
+
+CD4_Tcm1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_1_ERR431582/quant.sf")
+CD4_Tcm2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_2_ERR431598/quant.sf")
+CD4_Tcm3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_3_ERR431614/quant.sf")
+CD4_Tcm4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_4_ERR431620/quant.sf")
+CD4_Tcm5 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tcm_5_ERR431626/quant.sf")
+CD4_Tcm1 <- data.frame("ID"=CD4_Tcm1$Name,"CD4_Tcm1_TPM"=CD4_Tcm1$TPM)
+CD4_Tcm2 <- data.frame("ID"=CD4_Tcm2$Name,"CD4_Tcm2_TPM"=CD4_Tcm2$TPM)
+CD4_Tcm3 <- data.frame("ID"=CD4_Tcm3$Name,"CD4_Tcm3_TPM"=CD4_Tcm3$TPM)
+CD4_Tcm4 <- data.frame("ID"=CD4_Tcm4$Name,"CD4_Tcm4_TPM"=CD4_Tcm4$TPM)
+CD4_Tcm5 <- data.frame("ID"=CD4_Tcm5$Name,"CD4_Tcm5_TPM"=CD4_Tcm5$TPM)
+
+
+
+CD4_Tem1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_1_ERR431575/quant.sf")
+CD4_Tem2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_2_ERR431588/quant.sf")
+CD4_Tem3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_3_ERR431603/quant.sf")
+CD4_Tem4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD4_Tem_4_ERR431616/quant.sf")
+CD4_Tem1 <- data.frame("ID"=CD4_Tem1$Name,"CD4_Tem1_TPM"=CD4_Tem1$TPM)
+CD4_Tem2 <- data.frame("ID"=CD4_Tem2$Name,"CD4_Tem2_TPM"=CD4_Tem2$TPM)
+CD4_Tem3 <- data.frame("ID"=CD4_Tem3$Name,"CD4_Tem3_TPM"=CD4_Tem3$TPM)
+CD4_Tem4 <- data.frame("ID"=CD4_Tem4$Name,"CD4_Tem4_TPM"=CD4_Tem4$TPM)
+
+
+
+CD8_Tn1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_1_SRR6298258/quant.sf")
+CD8_Tn2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_2_SRR6298286/quant.sf")
+CD8_Tn3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_3_SRR6298315/quant.sf")
+CD8_Tn4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tn_4_SRR6298344/quant.sf")
+CD8_Tn1 <- data.frame("ID"=CD8_Tn1$Name,"CD8_Tn1_TPM"=CD8_Tn1$TPM)
+CD8_Tn2 <- data.frame("ID"=CD8_Tn2$Name,"CD8_Tn2_TPM"=CD8_Tn2$TPM)
+CD8_Tn3 <- data.frame("ID"=CD8_Tn3$Name,"CD8_Tn3_TPM"=CD8_Tn3$TPM)
+CD8_Tn4 <- data.frame("ID"=CD8_Tn4$Name,"CD8_Tn4_TPM"=CD8_Tn4$TPM)
+
+
+
+CD8_Tcm1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_1_SRR6298259/quant.sf")
+CD8_Tcm2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_2_SRR6298287/quant.sf")
+CD8_Tcm3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_3_SRR6298316/quant.sf")
+CD8_Tcm4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tcm_4_SRR6298345/quant.sf")
+CD8_Tcm1 <- data.frame("ID"=CD8_Tcm1$Name,"CD8_Tcm1_TPM"=CD8_Tcm1$TPM)
+CD8_Tcm2 <- data.frame("ID"=CD8_Tcm2$Name,"CD8_Tcm2_TPM"=CD8_Tcm2$TPM)
+CD8_Tcm3 <- data.frame("ID"=CD8_Tcm3$Name,"CD8_Tcm3_TPM"=CD8_Tcm3$TPM)
+CD8_Tcm4 <- data.frame("ID"=CD8_Tcm4$Name,"CD8_Tcm4_TPM"=CD8_Tcm4$TPM)
+
+
+
+CD8_Tem1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_1_SRR6298260/quant.sf")
+CD8_Tem2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_2_SRR6298288/quant.sf")
+CD8_Tem3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_3_SRR6298317/quant.sf")
+CD8_Tem4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Tem_4_SRR6298346/quant.sf")
+CD8_Tem1 <- data.frame("ID"=CD8_Tem1$Name,"CD8_Tem1_TPM"=CD8_Tem1$TPM)
+CD8_Tem2 <- data.frame("ID"=CD8_Tem2$Name,"CD8_Tem2_TPM"=CD8_Tem2$TPM)
+CD8_Tem3 <- data.frame("ID"=CD8_Tem3$Name,"CD8_Tem3_TPM"=CD8_Tem3$TPM)
+CD8_Tem4 <- data.frame("ID"=CD8_Tem4$Name,"CD8_Tem4_TPM"=CD8_Tem4$TPM)
+
+
+
+CD8_Teff1 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_1_SRR6298261/quant.sf")
+CD8_Teff2 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_2_SRR6298289/quant.sf")
+CD8_Teff3 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_3_SRR6298318/quant.sf")
+CD8_Teff4 <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/RNA/Salmon_output/CD8_Teff_4_SRR6298353/quant.sf")
+CD8_Teff1 <- data.frame("ID"=CD8_Teff1$Name,"CD8_Teff1_TPM"=CD8_Teff1$TPM)
+CD8_Teff2 <- data.frame("ID"=CD8_Teff2$Name,"CD8_Teff2_TPM"=CD8_Teff2$TPM)
+CD8_Teff3 <- data.frame("ID"=CD8_Teff3$Name,"CD8_Teff3_TPM"=CD8_Teff3$TPM)
+CD8_Teff4 <- data.frame("ID"=CD8_Teff4$Name,"CD8_Teff4_TPM"=CD8_Teff4$TPM)
+
+
+
+
+Tregs_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Treg_A_SRR6298266/quant.sf")
+Tregs_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Treg_B_SRR6298294/quant.sf")
+Tregs_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Treg_C_SRR6298323/quant.sf")
+Tregs_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Treg_D_SRR6298358/quant.sf")
+Tregs_A <- data.frame("ID"=Tregs_A$Name,"Tregs_A_TPM"=Tregs_A$TPM)
+Tregs_B <- data.frame("ID"=Tregs_B$Name,"Tregs_B_TPM"=Tregs_B$TPM)
+Tregs_C <- data.frame("ID"=Tregs_C$Name,"Tregs_C_TPM"=Tregs_C$TPM)
+Tregs_D <- data.frame("ID"=Tregs_D$Name,"Tregs_D_TPM"=Tregs_D$TPM)
+
+
+
+
+B_naive_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-naive_A_SRR6298273/quant.sf")
+B_naive_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-naive_B_SRR6298302/quant.sf")
+B_naive_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-naive_C_SRR6298331/quant.sf")
+B_naive_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-naive_D_SRR6298365/quant.sf")
+B_naive_A <- data.frame("ID"=B_naive_A$Name,"B_naive_A_TPM"=B_naive_A$TPM)
+B_naive_B <- data.frame("ID"=B_naive_B$Name,"B_naive_B_TPM"=B_naive_B$TPM)
+B_naive_C <- data.frame("ID"=B_naive_C$Name,"B_naive_C_TPM"=B_naive_C$TPM)
+B_naive_D <- data.frame("ID"=B_naive_D$Name,"B_naive_D_TPM"=B_naive_D$TPM)
+
+
+
+B_NS_mem_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-NS-mem_A_SRR6298274/quant.sf")
+B_NS_mem_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-NS-mem_B_SRR6298303/quant.sf")
+B_NS_mem_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-NS-mem_C_SRR6298332/quant.sf")
+B_NS_mem_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-NS-mem_D_SRR6298366/quant.sf")
+B_NS_mem_A <- data.frame("ID"=B_NS_mem_A$Name,"B_NS_mem_A_TPM"=B_NS_mem_A$TPM)
+B_NS_mem_B <- data.frame("ID"=B_NS_mem_B$Name,"B_NS_mem_B_TPM"=B_NS_mem_B$TPM)
+B_NS_mem_C <- data.frame("ID"=B_NS_mem_C$Name,"B_NS_mem_C_TPM"=B_NS_mem_C$TPM)
+B_NS_mem_D <- data.frame("ID"=B_NS_mem_D$Name,"B_NS_mem_D_TPM"=B_NS_mem_D$TPM)
+
+
+B_S_mem_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-S-mem_A_SRR6298276/quant.sf")
+B_S_mem_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-S-mem_B_SRR6298305/quant.sf")
+B_S_mem_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-S-mem_C_SRR6298334/quant.sf")
+B_S_mem_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-S-mem_D_SRR6298368/quant.sf")
+B_S_mem_A <- data.frame("ID"=B_S_mem_A$Name,"B_S_mem_A_TPM"=B_S_mem_A$TPM)
+B_S_mem_B <- data.frame("ID"=B_S_mem_B$Name,"B_S_mem_B_TPM"=B_S_mem_B$TPM)
+B_S_mem_C <- data.frame("ID"=B_S_mem_C$Name,"B_S_mem_C_TPM"=B_S_mem_C$TPM)
+B_S_mem_D <- data.frame("ID"=B_S_mem_D$Name,"B_S_mem_D_TPM"=B_S_mem_D$TPM)
+
+
+
+B_plasma_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-plasma_A_SRR6298277/quant.sf")
+B_plasma_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-plasma_B_SRR6298306/quant.sf")
+B_plasma_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-plasma_C_SRR6298335/quant.sf")
+B_plasma_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/B-plasma_D_SRR6298369/quant.sf")
+
+
+B_plasma_A <- data.frame("ID"=B_plasma_A$Name,"B_plasma_A_TPM"=B_plasma_A$TPM)
+B_plasma_B <- data.frame("ID"=B_plasma_B$Name,"B_plasma_B_TPM"=B_plasma_B$TPM)
+B_plasma_C <- data.frame("ID"=B_plasma_C$Name,"B_plasma_C_TPM"=B_plasma_C$TPM)
+B_plasma_D <- data.frame("ID"=B_plasma_D$Name,"B_plasma_D_TPM"=B_plasma_D$TPM)
+
+
+mDC_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/mDC_A_SRR6298283/quant.sf")
+mDC_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/mDC_B_SRR6298312/quant.sf")
+mDC_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/mDC_C_SRR6298341/quant.sf")
+mDC_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/mDC_D_SRR6298375/quant.sf")
+mDC_A <- data.frame("ID"=mDC_A$Name,"mDC_A_TPM"=mDC_A$TPM)
+mDC_B <- data.frame("ID"=mDC_B$Name,"mDC_B_TPM"=mDC_B$TPM)
+mDC_C <- data.frame("ID"=mDC_C$Name,"mDC_C_TPM"=mDC_C$TPM)
+mDC_D <- data.frame("ID"=mDC_D$Name,"mDC_D_TPM"=mDC_D$TPM)
+
+
+
+pDC_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/pDC_A_SRR6298282/quant.sf")
+pDC_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/pDC_B_SRR6298311/quant.sf")
+pDC_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/pDC_C_SRR6298340/quant.sf")
+pDC_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/pDC_D_SRR6298374/quant.sf")
+pDC_A <- data.frame("ID"=pDC_A$Name,"pDC_A_TPM"=pDC_A$TPM)
+pDC_B <- data.frame("ID"=pDC_B$Name,"pDC_B_TPM"=pDC_B$TPM)
+pDC_C <- data.frame("ID"=pDC_C$Name,"pDC_C_TPM"=pDC_C$TPM)
+pDC_D <- data.frame("ID"=pDC_D$Name,"pDC_D_TPM"=pDC_D$TPM)
+
+
+
+Mono_classical_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-classical_A_SRR6298278/quant.sf")
+Mono_classical_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-classical_B_SRR6298307/quant.sf")
+Mono_classical_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-classical_C_SRR6298336/quant.sf")
+Mono_classical_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-classical_D_SRR6298370/quant.sf")
+Mono_classical_A <- data.frame("ID"=Mono_classical_A$Name,"Mono_classical_A_TPM"=Mono_classical_A$TPM)
+Mono_classical_B <- data.frame("ID"=Mono_classical_B$Name,"Mono_classical_B_TPM"=Mono_classical_B$TPM)
+Mono_classical_C <- data.frame("ID"=Mono_classical_C$Name,"Mono_classical_C_TPM"=Mono_classical_C$TPM)
+Mono_classical_D <- data.frame("ID"=Mono_classical_D$Name,"Mono_classical_D_TPM"=Mono_classical_D$TPM)
+
+
+Mono_inter_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-inter_A_SRR6298279/quant.sf")
+Mono_inter_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-inter_B_SRR6298308/quant.sf")
+Mono_inter_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-inter_C_SRR6298337/quant.sf")
+Mono_inter_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-inter_D_SRR6298371/quant.sf")
+Mono_inter_A <- data.frame("ID"=Mono_inter_A$Name,"Mono_inter_A_TPM"=Mono_inter_A$TPM)
+Mono_inter_B <- data.frame("ID"=Mono_inter_B$Name,"Mono_inter_B_TPM"=Mono_inter_B$TPM)
+Mono_inter_C <- data.frame("ID"=Mono_inter_C$Name,"Mono_inter_C_TPM"=Mono_inter_C$TPM)
+Mono_inter_D <- data.frame("ID"=Mono_inter_D$Name,"Mono_inter_D_TPM"=Mono_inter_D$TPM)
+
+
+
+Mono_non_classical_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-non-classical_A_SRR6298280/quant.sf")
+Mono_non_classical_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-non-classical_B_SRR6298309/quant.sf")
+Mono_non_classical_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-non-classical_C_SRR6298338/quant.sf")
+Mono_non_classical_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Mono-non-classical_D_SRR6298372/quant.sf")
+Mono_non_classical_A <- data.frame("ID"=Mono_non_classical_A$Name,"Mono_non_classical_A_TPM"=Mono_non_classical_A$TPM)
+Mono_non_classical_B <- data.frame("ID"=Mono_non_classical_B$Name,"Mono_non_classical_B_TPM"=Mono_non_classical_B$TPM)
+Mono_non_classical_C <- data.frame("ID"=Mono_non_classical_C$Name,"Mono_non_classical_C_TPM"=Mono_non_classical_C$TPM)
+Mono_non_classical_D <- data.frame("ID"=Mono_non_classical_D$Name,"Mono_non_classical_D_TPM"=Mono_non_classical_D$TPM)
+
+
+
+Neutrophils_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Neutrophils_A_SRR6298284/quant.sf")
+Neutrophils_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Neutrophils_B_SRR6298313/quant.sf")
+Neutrophils_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Neutrophils_C_SRR6298342/quant.sf")
+Neutrophils_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Neutrophils_D_SRR6298376/quant.sf")
+Neutrophils_A <- data.frame("ID"=Neutrophils_A$Name,"Neutrophils_A_TPM"=Neutrophils_A$TPM)
+Neutrophils_B <- data.frame("ID"=Neutrophils_B$Name,"Neutrophils_B_TPM"=Neutrophils_B$TPM)
+Neutrophils_C <- data.frame("ID"=Neutrophils_C$Name,"Neutrophils_C_TPM"=Neutrophils_C$TPM)
+Neutrophils_D <- data.frame("ID"=Neutrophils_D$Name,"Neutrophils_D_TPM"=Neutrophils_D$TPM)
+
+
+Basophils_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Basophils_A_SRR6298285/quant.sf")
+Basophils_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Basophils_B_SRR6298314/quant.sf")
+Basophils_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Basophils_C_SRR6298343/quant.sf")
+Basophils_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/Basophils_D_SRR6298377/quant.sf")
+Basophils_A <- data.frame("ID"=Basophils_A$Name,"Basophils_A_TPM"=Basophils_A$TPM)
+Basophils_B <- data.frame("ID"=Basophils_B$Name,"Basophils_B_TPM"=Basophils_B$TPM)
+Basophils_C <- data.frame("ID"=Basophils_C$Name,"Basophils_C_TPM"=Basophils_C$TPM)
+Basophils_D <- data.frame("ID"=Basophils_D$Name,"Basophils_D_TPM"=Basophils_D$TPM)
+
+
+NK_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/NK_A_SRR6298281/quant.sf")
+NK_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/NK_B_SRR6298310/quant.sf")
+NK_C <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/NK_C_SRR6298339/quant.sf")
+NK_D <- read.delim("/home/ben/Analysis/RF_human/immune_system/RNA/Salmon_output/NK_D_SRR6298373/quant.sf")
+NK_A <- data.frame("ID"=NK_A$Name,"NK_A_TPM"=NK_A$TPM)
+NK_B <- data.frame("ID"=NK_B$Name,"NK_B_TPM"=NK_B$TPM)
+NK_C <- data.frame("ID"=NK_C$Name,"NK_C_TPM"=NK_C$TPM)
+NK_D <- data.frame("ID"=NK_D$Name,"NK_D_TPM"=NK_D$TPM)
+
+
+
+HEK293T_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/trimmed_HEK293T_A_SRR8449591.sra/quant.sf")
+HEK293T_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/trimmed_HEK293T_B_SRR8449592.sra/quant.sf")
+HEK293T_A <- data.frame("ID"=HEK293T_A$Name,"HEK293T_A_TPM"=HEK293T_A$TPM)
+HEK293T_B <- data.frame("ID"=HEK293T_B$Name,"HEK293T_B_TPM"=HEK293T_B$TPM)
+
+
+HeLa_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/HeLa_A_SRR8449597.sra/quant.sf")
+HeLa_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/HeLa_B_SRR8449599.sra/quant.sf")
+HeLa_A <- data.frame("ID"=HeLa_A$Name,"HeLa_A_TPM"=HeLa_A$TPM)
+HeLa_B <- data.frame("ID"=HeLa_B$Name,"HeLa_B_TPM"=HeLa_B$TPM)
+
+
+K562_A <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/K562_A_SRR8449604.sra/quant.sf")
+K562_B <- read.delim("/home/ben/Analysis/RF_human/immune_system/cell_lines_ref/Salmon_output/K562_B_SRR8449603.sra/quant.sf")
+K562_A <- data.frame("ID"=K562_A$Name,"K562_A_TPM"=K562_A$TPM)
+K562_B <- data.frame("ID"=K562_B$Name,"K562_B_TPM"=K562_B$TPM)
+
+
+
+
+
+
+# making a list #
+
+TPM_immune_and_cell_lines <- list(CD4_Tn1,CD4_Tn2,CD4_Tn3,CD4_Tn4,CD4_Tn5,
+                                  CD4_Tcm1,CD4_Tcm2,CD4_Tcm3,CD4_Tcm4,CD4_Tcm5,
+                                  CD4_Tem1,CD4_Tem2,CD4_Tem3,CD4_Tem4,
+                                  CD8_Tn1,CD8_Tn2,CD8_Tn3,CD8_Tn4,
+                                  CD8_Tcm1,CD8_Tcm2,CD8_Tcm3,CD8_Tcm4,
+                                  CD8_Tem1,CD8_Tem2,CD8_Tem3,CD8_Tem4,
+                                  CD8_Teff1,CD8_Teff2,CD8_Teff3,CD8_Teff4,
+                                  Tregs_A,Tregs_B,Tregs_C,Tregs_D,
+                                  B_naive_A,B_naive_B,B_naive_C,B_naive_D,
+                                  B_NS_mem_A,B_NS_mem_B,B_NS_mem_C,B_NS_mem_D,
+                                  B_S_mem_A,B_S_mem_B,B_S_mem_C,B_S_mem_D,
+                                  B_plasma_A,B_plasma_B,B_plasma_C,B_plasma_D,
+                                  mDC_A,mDC_B,mDC_C,mDC_D,
+                                  pDC_A,pDC_B,pDC_C,pDC_D,
+                                  Mono_classical_A,Mono_classical_B,Mono_classical_C,Mono_classical_D,
+                                  Mono_inter_A,Mono_inter_B,Mono_inter_C,Mono_inter_D,
+                                  Mono_non_classical_A,Mono_non_classical_B,Mono_non_classical_C,Mono_non_classical_D,
+                                  Neutrophils_A,Neutrophils_B,Neutrophils_C,Neutrophils_D,
+                                  Basophils_A,Basophils_B,Basophils_C,Basophils_D,
+                                  NK_A,NK_B,NK_C,NK_D,
+                                  HEK293T_A,HEK293T_B,
+                                  HeLa_A,HeLa_B,
+                                  K562_A,K562_B)
+
+TPM_immune_and_cell_lines <- join_all(TPM_immune_and_cell_lines,by = "ID")
+
+
+
+```
+
+
+
+```{r filterin and prep-ing}
+
+dim(TPM_immune_and_cell_lines[TPM_immune_and_cell_lines$ID %in% tx2gene$ensembl_transcript_id_version,]) # 154543
+
+# dim(Sequence_parameters_RNA[Sequence_parameters_RNA$ %in% tx2gene$ensembl_transcript_id_version,])
+
+dim(TPM_immune_and_cell_lines)
+TPM_immune_and_cell_lines$TPM <- rowMeans(TPM_immune_and_cell_lines[2:89])
+TPM_immune_and_cell_lines <- subset(TPM_immune_and_cell_lines, TPM_immune_and_cell_lines$TPM>0)
+dim(TPM_immune_and_cell_lines) # 159246     90
+TPM_immune_and_cell_lines$TPM <- NULL
+
+TPM_immune_and_cell_lines <- merge(TPM_immune_and_cell_lines,tx2gene,by.x="ID", by.y="ensembl_transcript_id_version", all.x=F) ## Here I put all.x=F to loose the TPM of non-coding transcripts (TCR, IGs, pseudogenes...)
+dim(TPM_immune_and_cell_lines) # 143745     92
+TPM_immune_and_cell_lines$ID <- TPM_immune_and_cell_lines$ensembl_transcript_id
+TPM_immune_and_cell_lines$ensembl_transcript_id <- NULL
+TPM_immune_and_cell_lines$gene_biotype <- NULL
+
+## making TPM per gene ##
+#registerDoMC(4)
+#CD4_Tn <- ddply(CD4_Tn,"external_gene_name", numcolwise(sum), .parallel = T, .progress = T)
+# TPM_immune_and_cell_lines[2:89] <- log10(TPM_immune_and_cell_lines[2:89])
+# TPM_immune_and_cell_lines <- do.call(data.frame,lapply(TPM_immune_and_cell_lines,function(x) replace(x, is.infinite(x),NA)))
+
+# TPM_immune_and_cell_lines[is.na(TPM_immune_and_cell_lines)]=min(TPM_immune_and_cell_lines[2:89], na.rm = T)
+
+
+
+write.table(TPM_immune_and_cell_lines,"/home/ben/Analysis/RF_human/immune_system/Replicates_separate/TPM_immune_and_cell_lines_TPM.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+
+
+
+```
+

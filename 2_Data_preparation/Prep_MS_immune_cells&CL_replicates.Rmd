@@ -1,0 +1,150 @@
+---
+title: "Preparation of CN tables for XGB in immune cells with replicates"
+author: "Benoit Nicolet"
+date: "26/10/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(plyr)
+library(dplyr)
+library(doMC)
+library(randomForest)
+library(biomaRt)
+library(ggplot2)
+library(tidyverse)
+library(caret)
+library(e1071)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("/home/ben/Analysis/RF_human/")
+setwd("/home/ben/Analysis/RF_human/")
+
+
+```
+
+
+
+```{r Protein library v1}
+
+Sequence_parameters <- read.delim("/home/ben/Analysis/RF_human/Library_V2_Aug2021/Protein_per_Uniprot_entry_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB_PTM.csv", sep="\t", dec=".")
+#Sequence_parameters$ID <- rownames(Sequence_parameters)
+
+CN_MANN <- read.delim("/home/ben/Analysis/RF_human/T_cell_subsets/Protein/CN_fromLFQ_mann.txt")
+CN_MANN <- data.frame(CN_MANN[,533:537],CN_MANN %>% dplyr::select(contains("copy")))
+CN_MANN <- data.frame(CN_MANN[,1:4],CN_MANN %>% dplyr::select(contains("steady")))
+CN_MANN$T..Protein.names <- NULL
+CN_MANN$T..Gene.name <- NULL #mapply(strsplit(as.character(CN_MANN$T..Gene.names),";"),FUN=function(x){(as.character(x)[1])})
+
+dim(CN_MANN)
+
+# Making a unique protein ID column # 
+
+CN_MANN$Entry_1 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[1])})
+CN_MANN$Entry_2 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[2])})
+CN_MANN$Entry_3 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[3])})
+CN_MANN$Entry_4 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[4])})
+CN_MANN$Entry_5 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[5])})
+CN_MANN$Entry_6 <- mapply(strsplit(as.character(CN_MANN$T..Majority.protein.IDs),";"),FUN=function(x){(as.character(x)[6])})
+
+dim(CN_MANN)
+dim(CN_MANN[CN_MANN$Entry_1 %in% Sequence_parameters$Entry,])
+dim(CN_MANN[CN_MANN$Entry_6 %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry[CN_MANN$Entry_1 %in% Sequence_parameters$Entry] <- CN_MANN$Entry_1[CN_MANN$Entry_1 %in% Sequence_parameters$Entry]
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_2 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_2,CN_MANN$Entry)
+
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_3 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_3,CN_MANN$Entry)
+
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_4 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_4,CN_MANN$Entry)
+
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_5 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_5,CN_MANN$Entry)
+
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+CN_MANN$Entry <- ifelse((CN_MANN$Entry_6 %in% Sequence_parameters$Entry)==TRUE & is.na(CN_MANN$Entry)==TRUE, CN_MANN$Entry_6,CN_MANN$Entry)
+
+dim(CN_MANN[CN_MANN$Entry %in% Sequence_parameters$Entry,])
+
+
+
+table(duplicated(CN_MANN$Entry))
+CN_MANN[duplicated(CN_MANN$Entry)==TRUE,]
+
+registerDoMC(4)
+CN_MANN <- ddply(CN_MANN,"Entry", numcolwise(sum), .parallel = T, .progress = T)
+dim(CN_MANN)
+
+
+```
+
+
+```{r CD4 Tn}
+
+CD4_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("T4")) )
+CD8_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("T8")) )
+B_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("_B.")) )
+Tregs_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("Tregs")) )
+DC_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("DC")) )
+Baso_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("Baso")) )
+Eosino_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("Eosino")) )
+Neutro_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("Neutrophil")) )
+Mono_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("MO.")) )
+NK_MS <- data.frame("Entry"=CN_MANN$Entry, CN_MANN %>% dplyr::select(contains("NK.")) )
+
+
+Immune_MS <- join_all(list(CD4_MS,CD8_MS,B_MS,Tregs_MS,DC_MS,Baso_MS,Eosino_MS,Neutro_MS,Mono_MS,NK_MS), by = "Entry")
+
+dim(Immune_MS) # 9369   93
+
+colnames(Immune_MS) <- gsub("N..Copy.number.LFQ.intensity_","",colnames(Immune_MS))
+colnames(Immune_MS) <- gsub("_steady.state","",colnames(Immune_MS))
+colnames(Immune_MS) <- gsub("\\.","_",colnames(Immune_MS))
+colnames(Immune_MS)
+
+Immune_MS[2:93] <- log10(Immune_MS[2:93])
+Immune_MS <- do.call(data.frame,lapply(Immune_MS,function(x) replace(x, is.infinite(x),0)))
+
+Immune_MS$avg_CN <- rowMeans(Immune_MS[,2:93],na.rm = T)
+Immune_MS <- subset(Immune_MS, Immune_MS$avg_CN>0)
+Immune_MS$avg_CN <- NULL
+dim(Immune_MS) # 9220   94
+
+
+ write.table(Immune_MS,"/home/ben/Analysis/RF_human/immune_system/Replicates_separate/Immune_cells_CN_all_replicates_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
+
+```{r fusing cell lines and immune cells for modelling}
+
+# Immune_MS
+Cell_lines_CN_Geiger <- read.delim("/home/ben/Analysis/RF_human/immune_system/Replicates_separate/Cell_lines_CN_Geiger_log10.csv",sep = ";",dec = ",")
+
+Cell_lines_and_immune_cells_CN <- join_all(list(Immune_MS,Cell_lines_CN_Geiger), by="Entry", type = "full")
+Cell_lines_and_immune_cells_CN[is.na(Cell_lines_and_immune_cells_CN)]=0
+
+dim(Cell_lines_and_immune_cells_CN)
+
+
+write.table(Cell_lines_and_immune_cells_CN,"/home/ben/Analysis/RF_human/immune_system/Replicates_separate/Cell_lines_and_immune_cells_CN_all_replicates_log10.csv",sep = ";",dec = ",",row.names = F,quote = F)
+
+```
+
+
