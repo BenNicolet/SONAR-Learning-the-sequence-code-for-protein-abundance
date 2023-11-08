@@ -1,0 +1,754 @@
+---
+title: "Isolating the sequence features involved in changes in mRNA/protein levels during T cell activation"
+author: "Benoit Nicolet"
+date: "01/08/2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+# install.packages("pROC")
+
+library(plyr)
+library(dplyr)
+library(ggplot2)
+library(ggfortify)
+library(tidyverse)
+library(circlize)
+library(pheatmap)
+library(caret)
+library(e1071)
+library(xgboost)
+library(ggpointdensity)
+library(viridis)
+library(reshape)
+library(biomaRt)
+library(doMC)
+# BiocManager::install("limma")
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set("./")
+setwd("./")
+
+```
+
+
+
+```{r BiomaRt}
+## Biomart ##
+ensembl <- useEnsembl(biomart="ensembl",dataset="hsapiens_gene_ensembl", host = "https://apr2018.archive.ensembl.org")
+
+tx2gene <- getBM(attributes=c("ensembl_transcript_id","external_gene_name","gene_biotype"), mart = ensembl)
+tx2gene <- subset(tx2gene,tx2gene$gene_biotype=="protein_coding")
+
+gene_annotations <- getBM(attributes=c("ensembl_gene_id","external_gene_name"), mart = ensembl)
+
+```
+
+
+
+
+
+```{r importing RNA-seq data}
+
+
+CD4_TPM_0h <- read.delim("./Tnaive_0h/quant.sf")
+CD4_TPM_6h <- read.delim("./Tnaive_act6h/quant.sf")
+CD4_TPM_24h <- read.delim("./Tnaive_act24h/quant.sf")
+
+CD4_TPM_0h <- data.frame("ID"=CD4_TPM_0h$Name,"CD4_0h"=CD4_TPM_0h$TPM)
+CD4_TPM_6h <- data.frame("ID"=CD4_TPM_6h$Name,"CD4_6h"=CD4_TPM_6h$TPM)
+CD4_TPM_24h <- data.frame("ID"=CD4_TPM_24h$Name,"CD4_24h"=CD4_TPM_24h$TPM)
+
+
+CD4_TPM <- join_all(list(CD4_TPM_0h,CD4_TPM_6h,CD4_TPM_24h),by = "ID")
+
+CD4_TPM <- subset(CD4_TPM,CD4_TPM$CD4_0h>1 | CD4_TPM$CD4_6h>1 | CD4_TPM$CD4_24h>1)
+CD4_TPM$ID <- mapply(strsplit(as.character(CD4_TPM$ID),"\\."), FUN=function(x){(as.character(x)[1])})
+
+
+```
+
+
+
+```{r isolating k-mers}
+
+## isolating the tx the change in expression >1 log2 ##
+CD4_TPM[2:4] <- log2(CD4_TPM[2:4])
+CD4_TPM <- do.call(data.frame,lapply(CD4_TPM,function(x) replace(x, is.infinite(x),0)))
+CD4_TPM <- subset(CD4_TPM, CD4_TPM$CD4_0h>1 | CD4_TPM$CD4_6h>1 | CD4_TPM$CD4_24h>1) ## filtering out low-expressed Tx 
+
+CD4_TPM$LFC_0h_6h <- CD4_TPM$CD4_6h - CD4_TPM$CD4_0h
+CD4_TPM$LFC_0h_24h <- CD4_TPM$CD4_24h - CD4_TPM$CD4_0h
+CD4_TPM$LFC_6h_24h <- CD4_TPM$CD4_24h - CD4_TPM$CD4_6h
+
+
+CD4_TPM <- subset(CD4_TPM, abs(CD4_TPM$LFC_0h_6h)>2 | abs(CD4_TPM$LFC_0h_24h)>2 | abs(CD4_TPM$LFC_6h_24h)>2) # isolating TX with LFC>1
+CD4_TPM <- merge(CD4_TPM,tx2gene,by.x="ID", by.y = "ensembl_transcript_id") ## only keeping protein coding Tx 
+
+
+
+
+
+CD4_TPM_scaled <- data.frame(CD4_TPM[1:1],t(scale(t(CD4_TPM[2:4]))))
+
+
+col_fun= colorRamp2(c(-3, -1.5, 0, 1.5, 3), c("#053061","#579EC9","#FFFFFF","#D96651","#67001F"))
+
+set.seed(1234)
+CD4_TPM_data_kmeans <- pheatmap(CD4_TPM_scaled[2:4], col_fun(seq(-3,3,by=0.01)) ,scale = "row",
+                                  clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = T,
+                                  labels_col=colnames(CD4_TPM_scaled[2:4]), fontsize_row=6,na_col = "#515a5a", 
+                                  border_color = "black", clustering_distance_rows ="manhattan",
+                                  labels_row =F,cellwidth = 20, cellheight = 20,kmeans_k = 3,clustering_method = "centroid")
+
+CD4_TPM_kmeans <- CD4_TPM_scaled
+CD4_TPM_kmeans$cluster <- CD4_TPM_data_kmeans$kmeans$cluster
+# Rest_PD_data_for_kmeans_scaled$cluster <- Rest_PD_data_kmeans$kmeans$cluster
+
+CD4_TPM_kmeans <- CD4_TPM_kmeans[order(CD4_TPM_kmeans$cluster,decreasing = F),]
+
+pheatmap(CD4_TPM_kmeans[2:4], col_fun(seq(-3,3,by=0.01)) ,scale = "row",
+         clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+         labels_col=colnames(CD4_TPM_kmeans[2:4]), fontsize_row=4,na_col = "#515a5a", 
+         border_color = NA, clustering_distance_rows ="manhattan",
+         cellwidth = 20)
+
+CD4_TPM_kmeans_melted <- data.table::data.table(CD4_TPM_kmeans)
+CD4_TPM_kmeans_melted <- data.table::melt.data.table(CD4_TPM_kmeans_melted,id.vars = c("cluster", "ID"))
+
+CD4_TPM_kmeans_melted$value <- as.numeric(CD4_TPM_kmeans_melted$value)
+
+CD4_TPM_kmeans_melted <- CD4_TPM_kmeans_melted[CD4_TPM_kmeans_melted$variable!="ID"]
+
+mean_data <- dplyr::group_by(CD4_TPM_kmeans_melted,variable, cluster) %>%
+  summarise(value = mean(value, na.rm = TRUE))
+
+ggplot(CD4_TPM_kmeans_melted,aes(x=variable,y=value))+
+  geom_line(aes(group = ID), alpha=0.1, size=0.1)+
+  geom_line(data=mean_data, aes(group = cluster), alpha=1, color="red")+
+  facet_wrap(. ~ cluster, ncol = 3)+
+  theme_minimal()+
+  theme(aspect.ratio = 1, axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+
+
+
+```
+
+
+```{r XGB prep}
+## importing feature library
+Sequence_parameters <- read.delim("./RNA_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB.csv",sep = ";", dec=",")
+
+CD4_TPM_clusters <- data.frame("ID"=CD4_TPM_kmeans$ID, "cluster"=CD4_TPM_kmeans$cluster)
+dim(CD4_TPM_clusters)
+CD4_TPM_clusters <- merge(CD4_TPM_clusters,Sequence_parameters,by.x="ID", by.y="tx.id")
+dim(CD4_TPM_clusters)
+
+## Selecting promising features for mRNA model ##
+doMC::registerDoMC(4)
+dim(CD4_TPM_clusters) # 4236 7126
+CD4_TPM_clusters[is.na(CD4_TPM_clusters)]=0
+CD4_TPM_clusters <- CD4_TPM_clusters[, -nearZeroVar(CD4_TPM_clusters, allowParallel = T, uniqueCut = 0.1)]
+dim(CD4_TPM_clusters) # 4236 2817
+
+
+CD4_TPM_clusters[2:ncol(CD4_TPM_clusters)] <- lapply(CD4_TPM_clusters[2:ncol(CD4_TPM_clusters)], function(x) {
+    if(is.character(x)) as.numeric(x) else x
+})
+
+
+CD4_TPM_clusters[is.na(CD4_TPM_clusters)] <- 0
+
+
+table(CD4_TPM_clusters$cluster)
+CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==1]="A"
+CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==2]="B"
+CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==3]="C"
+# CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==4]="D"
+# CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==5]="E"
+# CD4_TPM_clusters$cluster[CD4_TPM_clusters$cluster==6]="F"
+
+table(CD4_TPM_clusters$cluster)
+
+
+write.table(CD4_TPM_clusters,"./CD4_TPM_clusters.csv")
+# CD4_TPM_clusters <- read.delim("./CD4_TPM_clusters.csv", sep = " ")
+
+
+## spliting test/train set 20/80 ##
+# rownames(CD4_TPM_clusters) <- make.unique(protein_localization$Entry)
+# protein_localization$Entry <- NULL
+rownames(CD4_TPM_clusters) <- CD4_TPM_clusters$ID
+CD4_TPM_clusters$ID <- NULL
+CD4_TPM_clusters$ensembl_gene_id <- NULL
+CD4_TPM_clusters$gene_name <- NULL
+
+train_row <- sample(1:nrow(CD4_TPM_clusters), 0.8 * nrow(CD4_TPM_clusters))
+CD4_TPM_clusters_train <- CD4_TPM_clusters[train_row,]
+CD4_TPM_clusters_test <- CD4_TPM_clusters[-train_row,]
+
+dim(CD4_TPM_clusters_train)
+dim(CD4_TPM_clusters_test)
+
+
+table(CD4_TPM_clusters_train$cluster)
+table(CD4_TPM_clusters_test$cluster)
+
+write.table(CD4_TPM_clusters_train,"./CD4_TPM_clusters_train.csv")
+write.table(CD4_TPM_clusters_test,"./CD4_TPM_clusters_test.csv")
+
+# CD4_TPM_clusters_train <- read.delim("./CD4_TPM_clusters_train.csv", sep=" ")
+# CD4_TPM_clusters_test <- read.delim("./CD4_TPM_clusters_test.csv", sep=" ")
+
+
+```
+
+
+
+```{r XGBoost time}
+
+gc()
+doMC::registerDoMC(1)
+control <- trainControl( method="cv",
+                        number=10,
+                        repeats = 2,
+                        search="grid",
+                        verboseIter = TRUE,
+                        sampling = "down",
+                        #classProbs = TRUE,
+                        allowParallel = T)
+#
+xgbGrid <- expand.grid(nrounds = 10000,  
+                       max_depth = 4,
+                       colsample_bytree = 0.3, #seq(0.3, 0.5, length.out = 3),
+                       eta = 0.1,
+                       gamma=1,
+                       min_child_weight = 0.9,
+                       subsample = 1)
+
+
+set.seed(12345)
+
+start_time <- Sys.time()
+
+xgb_TPM_clusters <- caret::train(cluster~. , 
+               data=CD4_TPM_clusters_train,
+               method="xgbTree",
+               trControl=control,
+               metric="Accuracy",
+               tuneGrid= xgbGrid,
+               na.action = na.omit,
+               verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 
+
+xgb_TPM_clusters
+#Fitting nrounds = 800, max_depth = 10, eta = 0.05, gamma = 0, colsample_bytree = 0.3, min_child_weight = 1, subsample = 0.5
+
+saveRDS(xgb_TPM_clusters,"./xgb_TPM_clusters.RDS")
+
+```
+
+
+```{r }
+xgb_TPM_clusters_predict_test <- predict(xgb_TPM_clusters,CD4_TPM_clusters_test)
+xgb_TPM_clusters_predict_test <- data.frame(xgb_TPM_clusters_predict_test)
+table(xgb_TPM_clusters_predict_test$cluster)
+table(xgb_TPM_clusters_predict_test$xgb_TPM_clusters_predict_test)
+
+#table(protein_localization_test$localization,xgb_protein_loc_predict_test$xgb_protein_loc_predict_test)
+table(CD4_TPM_clusters_test$cluster)
+caret::confusionMatrix(table(xgb_TPM_clusters_predict_test$xgb_TPM_clusters_predict_test,CD4_TPM_clusters_test$cluster),mode= "everything")
+
+# Overall Statistics
+#                                           
+#                Accuracy : 0.5982          
+#                  95% CI : (0.5741, 0.6219)
+#     No Information Rate : 0.5233          
+#     P-Value [Acc > NIR] : 5.199e-10       
+#                                           
+#                   Kappa : 0.2919          
+#                                           
+#  Mcnemar's Test P-Value : < 2.2e-16       
+# 
+# Statistics by Class:
+# 
+#                      Class: A Class: B Class: C
+# Sensitivity            0.7529  0.10646   0.5894
+# Specificity            0.5615  0.95187   0.7768
+# Pos Pred Value         0.6533  0.29474   0.5516
+# Neg Pred Value         0.6743  0.84936   0.8024
+# Precision              0.6533  0.29474   0.5516
+# Recall                 0.7529  0.10646   0.5894
+# F1                     0.6996  0.15642   0.5699
+# Prevalence             0.5233  0.15891   0.3178
+# Detection Rate         0.3940  0.01692   0.1873
+# Detection Prevalence   0.6030  0.05740   0.3396
+# Balanced Accuracy      0.6572  0.52917   0.6831
+
+
+
+
+
+# col_fun = colorRamp2(c(-3, 0, 3), c("#FFFFFF","#1E8449","#000000")) # green
+col_fun= colorRamp2(c(-3, -2, 0, 2, 3), c("#053061","#579EC9","#FFFFFF","#D96651","#67001F"))
+
+pheatmap(table(xgb_TPM_clusters_predict_test$xgb_TPM_clusters_predict_test,CD4_TPM_clusters_test$cluster),
+         col_fun(seq(-3,3,by=0.01)), scale = "column",
+         clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+         na_col = "#515a5a", border_color = "black", clustering_distance_rows ="manhattan", 
+         display_numbers = T, width = 1,height = 1,cellwidth = 30,cellheight = 30)
+
+# 
+pheatmap(table(xgb_TPM_clusters_predict_test$xgb_TPM_clusters_predict_test,CD4_TPM_clusters_test$cluster),
+         col_fun(seq(-5,3,by=0.01)), scale = "none",
+         clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+         na_col = "#515a5a", border_color = "black", clustering_distance_rows ="manhattan",
+         display_numbers = T, width = 1,height = 1)
+
+
+
+
+
+
+```
+
+
+
+
+
+```{r var imp}
+
+VarImp_TPM_clusters <- data.frame(varImp(xgb_TPM_clusters,scale = T)$importance)
+xgb.importance(model = xgb_TPM_clusters$finalModel)
+VarImp_TPM_clusters$ID <- rownames(VarImp_TPM_clusters)
+
+write.table(VarImp_TPM_clusters,"./VarImp_TPM_clusters.csv",row.names = F)
+
+
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=log10(UTR5_length_UTR5)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=log10(total_m6A)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(limits = c(0,3),expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=log10(CDS_m6a)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(limits = c(0,3),expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=(V_amino_CDS)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=(S_amino_CDS)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width = 0.8, color="red")+
+  stat_summary(fun = mean, fun.min = mean, fun.max = mean, geom = "crossbar", width = 0.8, color="blue")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_TPM_clusters, aes(x=cluster,y=log10(total_m7G)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(limits = c(0,4),expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+
+ggplot(CD4_TPM_kmeans_melted,aes(x=variable,y=value))+
+  geom_line(aes(group = ID), alpha=0.01)+
+  geom_line(data=mean_data, aes(group = cluster), alpha=1, color="red")+
+  scale_y_continuous(limits = c(-5,10),expand = c(0,0))+
+  facet_wrap(. ~ cluster, ncol = 3)+
+  theme_minimal()+
+  theme(aspect.ratio = 1.5, axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Protein part ###
+
+```{r importing MSdata}
+
+
+CD4_CN_0h <- read.delim("./CD4_Tn_0h_CN_log10.csv",sep = ";",dec = ",")
+CD4_CN_6h <- read.delim("./CD4_Tn_6h_CN_log10.csv",sep = ";",dec = ",")
+CD4_CN_12h <- read.delim("./CD4_Tn_12h_CN_log10.csv",sep = ";",dec = ",")
+CD4_CN_24h <- read.delim("./CD4_Tn_24h_CN_log10.csv",sep = ";",dec = ",")
+CD4_CN_48h <- read.delim("./CD4_Tn_48h_CN_log10.csv",sep = ";",dec = ",")
+
+CD4_CN <- join_all(list(CD4_CN_0h,CD4_CN_6h,CD4_CN_12h,CD4_CN_24h,CD4_CN_48h),by = "ID")
+colnames(CD4_CN) <- c("ID","CD4_0h","CD4_6h","CD4_12h","CD4_24h","CD4_48h")
+
+CD4_CN <- subset(CD4_CN,CD4_CN$CD4_0h>1 | CD4_CN$CD4_6h>1 | CD4_CN$CD4_12h>1 | CD4_CN$CD4_24h>1 | CD4_CN$CD4_48h>1)
+
+
+```
+
+
+
+```{r isolating k-mers}
+
+## isolating the tx the change in expression >1 log2 ##
+CD4_CN[2:6] <- log2(10^CD4_CN[2:6])
+CD4_CN <- do.call(data.frame,lapply(CD4_CN,function(x) replace(x, is.infinite(x),NA)))
+
+CD4_CN[is.na(CD4_CN)]= 0 #min(CD4_CN[2:6],na.rm = T)
+
+CD4_CN$LFC_0h_6h <- CD4_CN$CD4_6h - CD4_CN$CD4_0h
+CD4_CN$LFC_0h_12h <- CD4_CN$CD4_12h - CD4_CN$CD4_0h
+CD4_CN$LFC_0h_24h <- CD4_CN$CD4_24h - CD4_CN$CD4_0h
+CD4_CN$LFC_0h_48h <- CD4_CN$CD4_48h - CD4_CN$CD4_0h
+
+
+
+CD4_CN <- subset(CD4_CN, abs(CD4_CN$LFC_0h_6h)>2 | abs(CD4_CN$LFC_0h_12h)>2 | abs(CD4_CN$LFC_0h_24h)>2 | abs(CD4_CN$LFC_0h_48h)>2) # isolating TX with LFC>2
+dim(CD4_CN)
+
+
+CD4_CN_Zscore <- data.frame("ID"=CD4_CN$ID,t(scale(t(CD4_CN[2:6]))))
+
+col_fun= colorRamp2(c(-3, -1.5, 0, 1.5, 3), c("#053061","#579EC9","#FFFFFF","#D96651","#67001F"))
+
+
+set.seed(1234)
+CD4_CN_data_kmeans <- pheatmap(CD4_CN_Zscore[2:6], col_fun(seq(-3,3,by=0.01)) ,scale = "none",
+                                  clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = T,
+                                  labels_col=colnames(CD4_CN_Zscore[2:6]), fontsize_row=6,na_col = "#515a5a", 
+                                  border_color = "black", clustering_distance_rows ="manhattan",
+                                  labels_row =CD4_CN_Zscore$ID,cellwidth = 20, cellheight = 20,kmeans_k = 4,clustering_method = "centroid")
+
+CD4_CN_kmeans <- CD4_CN_Zscore
+CD4_CN_kmeans$cluster <- CD4_CN_data_kmeans$kmeans$cluster
+# Rest_PD_data_for_kmeans_scaled$cluster <- Rest_PD_data_kmeans$kmeans$cluster
+
+CD4_CN_kmeans <- CD4_CN_kmeans[order(CD4_CN_kmeans$cluster,decreasing = F),]
+
+pheatmap(CD4_CN_kmeans[2:6], col_fun(seq(-3,3,by=0.01)) ,scale = "row",
+         clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+         labels_col=colnames(CD4_CN_kmeans[2:6]), fontsize_row=4,na_col = "#515a5a", 
+         border_color = NA, clustering_distance_rows ="manhattan",
+         cellwidth = 20)
+
+CD4_CN_kmeans_melted <- data.table::data.table(CD4_CN_kmeans)
+CD4_CN_kmeans_melted <- data.table::melt.data.table(CD4_CN_kmeans_melted,id.vars = c("cluster", "ID"))
+
+CD4_CN_kmeans_melted$value <- as.numeric(CD4_CN_kmeans_melted$value)
+
+CD4_CN_kmeans_melted <- CD4_CN_kmeans_melted[CD4_CN_kmeans_melted$variable!="ID"]
+
+mean_data <- dplyr::group_by(CD4_CN_kmeans_melted,variable, cluster) %>%
+  summarise(value = mean(value, na.rm = TRUE))
+
+ggplot(CD4_CN_kmeans_melted,aes(x=variable,y=value))+
+  geom_line(aes(group = ID), alpha=0.05)+
+  geom_line(data=mean_data, aes(group = cluster), alpha=1, color="red")+
+  facet_wrap(. ~ cluster, ncol = 3)+
+  theme_minimal()+
+  theme(aspect.ratio = 1, axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+
+
+
+```
+
+
+```{r XGB prep}
+## importing feature library
+Sequence_parameters <- read.delim("./Protein_per_gene_library_v2_RBP_GC_length_codon_AA_m6A_m5C_AtoI_m1A_m7G_CD8miRDB_PTM.csv")
+
+CD4_CN_clusters <- data.frame("ID"=CD4_CN_kmeans$ID, "cluster"=CD4_CN_kmeans$cluster)
+dim(CD4_CN_clusters)
+CD4_CN_clusters <- merge(CD4_CN_clusters,Sequence_parameters,by.x="ID", by.y="gene_name")
+dim(CD4_CN_clusters)
+
+## Selecting promising features for mRNA model ##
+doMC::registerDoMC(4)
+dim(CD4_CN_clusters) # 4236 7126
+CD4_CN_clusters[is.na(CD4_CN_clusters)]=0
+CD4_CN_clusters <- CD4_CN_clusters[, -nearZeroVar(CD4_CN_clusters, allowParallel = T, uniqueCut = 0.1)]
+dim(CD4_CN_clusters) # 4236 2817
+
+
+CD4_CN_clusters[2:ncol(CD4_CN_clusters)] <- lapply(CD4_CN_clusters[2:ncol(CD4_CN_clusters)], function(x) {
+    if(is.character(x)) as.numeric(x) else x
+})
+
+
+CD4_CN_clusters[is.na(CD4_CN_clusters)] <- 0
+
+
+table(CD4_CN_clusters$cluster)
+CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==1]="A"
+CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==2]="B"
+CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==3]="C"
+CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==4]="D"
+# CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==5]="E"
+# CD4_CN_clusters$cluster[CD4_CN_clusters$cluster==6]="F"
+
+table(CD4_CN_clusters$cluster)
+
+
+write.table(CD4_CN_clusters,"./CD4_CN_clusters.csv")
+
+
+## spliting test/train set 20/80 ##
+# rownames(CD4_CN_clusters) <- make.unique(protein_localization$Entry)
+# protein_localization$Entry <- NULL
+rownames(CD4_CN_clusters) <- CD4_CN_clusters$ID
+CD4_CN_clusters$ID <- NULL
+CD4_CN_clusters$ensembl_gene_id <- NULL
+CD4_CN_clusters$gene_name <- NULL
+
+train_row <- sample(1:nrow(CD4_CN_clusters), 0.8 * nrow(CD4_CN_clusters))
+CD4_CN_clusters_train <- CD4_CN_clusters[train_row,]
+CD4_CN_clusters_test <- CD4_CN_clusters[-train_row,]
+
+dim(CD4_CN_clusters_train)
+dim(CD4_CN_clusters_test)
+
+
+table(CD4_CN_clusters_train$cluster)
+table(CD4_CN_clusters_test$cluster)
+
+write.table(CD4_CN_clusters_train,"./CD4_CN_clusters_train.csv")
+write.table(CD4_CN_clusters_test,"./CD4_CN_clusters_test.csv")
+
+
+```
+
+
+
+```{r XGBoost time}
+
+gc()
+doMC::registerDoMC(1)
+control <- trainControl( method="cv",
+                        number=10,
+                        #repeats = 2,
+                        search="grid",
+                        verboseIter = TRUE,
+                        sampling = "down",
+                        #classProbs = TRUE,
+                        allowParallel = T)
+#
+xgbGrid <- expand.grid(nrounds = 1000,  
+                       max_depth = 3,
+                       colsample_bytree = 0.3, #seq(0.3, 0.5, length.out = 3),
+                       eta = 0.175,
+                       gamma=1,
+                       min_child_weight = 0.9,
+                       subsample = 1)
+
+
+set.seed(12345)
+
+start_time <- Sys.time()
+
+xgb_CN_clusters <- caret::train(cluster~. , 
+               data=CD4_CN_clusters_train,
+               method="xgbTree",
+               trControl=control,
+               metric="Accuracy",
+               tuneGrid= xgbGrid,
+               na.action = na.omit,
+               verbose = TRUE)
+
+end_time <- Sys.time()
+end_time - start_time # Time difference of 
+
+xgb_CN_clusters
+
+saveRDS(xgb_CN_clusters,"./xgb_CN_clusters.RDS")
+
+```
+
+
+```{r }
+xgb_CN_clusters_predict_test <- predict(xgb_CN_clusters,CD4_CN_clusters_test)
+xgb_CN_clusters_predict_test <- data.frame(xgb_CN_clusters_predict_test)
+table(xgb_CN_clusters_predict_test$cluster)
+table(xgb_CN_clusters_predict_test$xgb_CN_clusters_predict_test)
+
+#table(protein_localization_test$localization,xgb_protein_loc_predict_test$xgb_protein_loc_predict_test)
+table(CD4_CN_clusters_test$cluster)
+caret::confusionMatrix(table(xgb_CN_clusters_predict_test$xgb_CN_clusters_predict_test,CD4_CN_clusters_test$cluster),mode= "everything")
+
+
+
+# col_fun = colorRamp2(c(-3, 0, 3), c("#FFFFFF","#1E8449","#000000")) # green
+col_fun= colorRamp2(c(-3, -2, 0, 2, 3), c("#053061","#579EC9","#FFFFFF","#D96651","#67001F"))
+
+pheatmap(table(xgb_CN_clusters_predict_test$xgb_CN_clusters_predict_test,CD4_CN_clusters_test$cluster),
+         col_fun(seq(-3,3,by=0.01)), scale = "column",
+         clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+         na_col = "#515a5a", border_color = "black", clustering_distance_rows ="manhattan", 
+         display_numbers = T, width = 1,height = 1,cellwidth = 30,cellheight = 30)
+
+# 
+# pheatmap(table(xgb_CN_clusters_predict_test$xgb_CN_clusters_predict_test,CD4_CN_clusters_test$cluster),
+#          col_fun(seq(-5,3,by=0.01)), scale = "none",
+#          clustering_distance_cols = "canberra", cluster_cols = F, cluster_rows = F,
+#          na_col = "#515a5a", border_color = "black", clustering_distance_rows ="manhattan", 
+#          display_numbers = T, width = 1,height = 1)
+
+
+
+
+
+
+```
+
+
+
+```{r var imp}
+
+VarImp_CN_clusters <- data.frame(varImp(xgb_CN_clusters,scale = T)$importance)
+# xgb.importance(model = xgb_CN_clusters$finalModel)
+VarImp_CN_clusters$ID <- rownames(VarImp_CN_clusters)
+write.table(VarImp_CN_clusters,"./VarImp_CN_clusters.csv",row.names = F)
+
+
+# Ubiquitination_count
+# Acetylation_count
+# N_linked_Glycosylation_count
+# total_m7G
+# Malonylation_count
+# GC_percentage_UTR5
+# 
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=(Ubiquitination_count)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  # scale_y_continuous(limits = c(0,3),expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=log10(Acetylation_count)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(limits = c(0,3),expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=log10(N_linked_Glycosylation_count)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=log10(total_m7G)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median,
+               geom = "crossbar", width = 0.8, color="red")+
+  scale_y_continuous(expand = c(0,0), limits = c(0,3))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=(Malonylation_count)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width = 0.8, color="red")+
+  stat_summary(fun = mean, fun.min = mean, fun.max = mean, geom = "crossbar", width = 0.8, color="blue")+
+  scale_y_continuous(expand = c(0,0),limits = c(0,25))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=(GC_percentage_UTR5)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width = 0.8, color="red")+
+  stat_summary(fun = mean, fun.min = mean, fun.max = mean, geom = "crossbar", width = 0.8, color="blue")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=(GAT_codon_CDS)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width = 0.8, color="red")+
+  stat_summary(fun = mean, fun.min = mean, fun.max = mean, geom = "crossbar", width = 0.8, color="blue")+
+  scale_y_continuous(expand = c(0,0),limits = c(0,10))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+
+ggplot(CD4_CN_clusters, aes(x=cluster,y=(total_m5C)))+
+  geom_point(position = "jitter", stroke=0,alpha=0.1)+
+  stat_summary(fun = median, fun.min = median, fun.max = median, geom = "crossbar", width = 0.8, color="red")+
+  stat_summary(fun = mean, fun.min = mean, fun.max = mean, geom = "crossbar", width = 0.8, color="blue")+
+  scale_y_continuous(expand = c(0,0))+
+  theme_minimal()+
+  theme(aspect.ratio = 4)
+
+
+ggplot(CD4_CN_kmeans_melted,aes(x=variable,y=value))+
+  geom_line(aes(group = ID), alpha=0.05)+
+  geom_line(data=mean_data, aes(group = cluster), alpha=1, color="red")+
+  # scale_y_continuous(limits = c(-5,10),expand = c(0,0))+
+  facet_wrap(. ~ cluster, ncol = 3)+
+  theme_minimal()+
+  theme(aspect.ratio = 1.5, axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+```
+
+
+
